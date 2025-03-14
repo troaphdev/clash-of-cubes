@@ -20,16 +20,18 @@ let teamAssigned = false;
 let teamRequestTimeout = null;
 
 function initializePeer(id = null) {
+  // For host, pass the roomId so that the host's peer id becomes roomId.
   peer = new Peer(id, {
     // host: 'your-peerjs-server.com',
     // port: 9000,
     // path: '/myapp'
   });
   peer.on('open', (id) => {
-    console.log('Peer connected with ID:', id);
+    console.log('Peer open with ID:', id);
   });
   // For host: accept incoming connection.
   peer.on('connection', (incomingConn) => {
+    console.log("Host received connection:", incomingConn);
     if (!conn) {
       conn = incomingConn;
       setupConnection();
@@ -51,7 +53,7 @@ function setupConnection() {
   document.getElementById('connection-panel').style.display = 'none';
 
   if (isHost && !teamAssigned) {
-    // Host is always the tagger (red) and joiner becomes runner (blue)
+    // Host is always TAGGER (red); joiner will be RUNNER (blue)
     localTeam = "red";
     remoteTeam = "blue";
     localPlayer = redCube;
@@ -59,7 +61,7 @@ function setupConnection() {
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
-    // Start the countdown on both ends.
+    // Start the countdown on both sides.
     sendMessage({ type: "startCountdown" });
     startCountdown();
   }
@@ -84,7 +86,7 @@ function sendMessage(message) {
   }
 }
 
-// Create Room
+// Create Room (Host)
 document.getElementById('create-room').addEventListener('click', () => {
   roomId = document.getElementById('room-id').value.trim();
   if (!roomId) {
@@ -92,12 +94,13 @@ document.getElementById('create-room').addEventListener('click', () => {
     document.getElementById('room-id').value = roomId;
   }
   isHost = true;
+  // For host, pass roomId to initializePeer so that peer.id becomes roomId.
   initializePeer(roomId);
   document.getElementById('connection-status').textContent =
     "Room created: " + roomId + ". Waiting for connection...";
 });
 
-// Join Room
+// Join Room (Joiner)
 document.getElementById('join-room').addEventListener('click', () => {
   roomId = document.getElementById('room-id').value.trim();
   if (!roomId) {
@@ -105,17 +108,21 @@ document.getElementById('join-room').addEventListener('click', () => {
     return;
   }
   isHost = false;
+  // For joiner, initializePeer without a preset id.
   initializePeer();
-  if (peer && peer.id) {
-    connectToRoom();
-  } else {
-    peer.on('open', connectToRoom);
-  }
+  // Always wait for the joiner's peer to be open, then attempt connection.
+  peer.on('open', () => {
+    console.log("Joiner peer open with ID:", peer.id);
+    // Delay connection slightly to ensure host is ready.
+    setTimeout(connectToRoom, 500);
+  });
 });
 
 function connectToRoom() {
-  conn = peer.connect(roomId);
+  console.log("Joiner attempting to connect to room:", roomId);
+  conn = peer.connect(roomId, { reliable: true });
   conn.on('open', () => {
+    console.log("Joiner connection open");
     setupConnection();
   });
   conn.on('error', (err) => {
@@ -412,7 +419,7 @@ function handleData(data) {
   if (data.type) {
     switch (data.type) {
       case "requestTeam":
-        // Always send team assignment when requested.
+        // Host always responds with team assignment.
         if (isHost) {
           sendMessage({ type: "teamAssignment", team: "red" });
         }
@@ -420,7 +427,7 @@ function handleData(data) {
       case "teamAssignment":
         if (!teamAssigned) {
           if (data.team === "red") {
-            // Host is red, so joiner becomes blue.
+            // Host is red; joiner becomes blue.
             localTeam = "blue";
             remoteTeam = "red";
             localPlayer = blueCube;
@@ -443,7 +450,7 @@ function handleData(data) {
             z: localPlayer.position.z,
             rotation: localPlayer.rotation.y
           });
-          // Start countdown if it hasn't started.
+          // Start the countdown if not already started.
           if (!gameStarted) {
             startCountdown();
           }
@@ -459,7 +466,6 @@ function handleData(data) {
         break;
       case "movement":
         if (remotePlayer) {
-          // Interpolate remote player's movement.
           remotePlayer.position.lerp(new THREE.Vector3(data.x, data.y, data.z), 0.2);
           remotePlayer.rotation.y = data.rotation;
         }
@@ -572,7 +578,7 @@ function restartGame() {
   document.getElementById('endMessage').style.display = 'none';
   document.getElementById('restartStatus').textContent = "";
   
-  // Swap teams so both players get a chance.
+  // Swap teams.
   if (localTeam === "red") {
     localTeam = "blue";
     remoteTeam = "red";
