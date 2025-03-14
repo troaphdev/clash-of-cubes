@@ -60,12 +60,13 @@ function setupConnection() {
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
-    startCountdown();
   }
   // If this is a joiner, request a team assignment from the host.
   if (!isHost) {
     sendMessage({ type: "requestTeam" });
   }
+  // Start countdown on both sides once connection & team assignment are ready.
+  if (!gameStarted) startCountdown();
 }
 
 // Function to send a message over the connection.
@@ -324,12 +325,14 @@ remotePlayer.add(remoteNameTag);
 const trees = [];
 function createTree(x, z) {
   const tree = new THREE.Group();
+  // Create a trunk
   const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 6);
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
   const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
   trunk.position.y = 1.5;
   trunk.castShadow = true;
   tree.add(trunk);
+  // Create leaves
   const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 6);
   const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
   const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
@@ -422,7 +425,8 @@ function handleData(data) {
             document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
           }
           teamAssigned = true;
-          startCountdown();
+          // If not already started by setupConnection, ensure countdown starts.
+          if (!gameStarted) startCountdown();
         }
         break;
       case "username":
@@ -496,11 +500,15 @@ document.addEventListener('keyup', (e) => {
 });
 
 function isPlayerGrounded() {
+  // Use the player's bounding box for ground/platform detection.
+  const playerBox = new THREE.Box3().setFromObject(localPlayer);
+  // Ground check: compare bottom of player's box with ground height.
   const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z) + 1;
-  if (Math.abs(localPlayer.position.y - groundY) < 0.15 && localPlayer.velocity.y <= 0) return true;
+  if (Math.abs(playerBox.min.y - groundY) < 0.2 && localPlayer.velocity.y <= 0) return true;
+  // Check against all parkour platforms.
   for (let platform of parkourPlatforms) {
     const platformBox = new THREE.Box3().setFromObject(platform);
-    if (Math.abs((localPlayer.position.y - 1) - platformBox.max.y) < 0.15 && localPlayer.velocity.y <= 0)
+    if (playerBox.intersectsBox(platformBox) && localPlayer.velocity.y <= 0)
       return true;
   }
   return false;
@@ -618,29 +626,28 @@ function animate() {
       localPlayer.velocity.y = 0;
       localPlayer.canDoubleJump = true;
     }
+    // Handle collision with parkour platforms
     (function handlePlatformCollisions(player) {
-      const playerBox = new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(player.position.x, player.position.y - 0.5, player.position.z),
-        new THREE.Vector3(1.5, 2, 1.5)
-      );
+      const playerBox = new THREE.Box3().setFromObject(player);
       for (let platform of parkourPlatforms) {
         const platformBox = new THREE.Box3().setFromObject(platform);
         if (playerBox.intersectsBox(platformBox) && player.velocity.y <= 0) {
-          const platformTopY = platformBox.max.y;
-          const feetY = player.position.y - 1;
-          if (feetY >= platformTopY - 0.3 && feetY <= platformTopY + 0.5) {
-            player.position.y = platformTopY + 1;
+          // Only snap if player's bottom is near platform top.
+          if (Math.abs(playerBox.min.y - platformBox.max.y) < 0.3) {
+            player.position.y = platformBox.max.y + 0.1; // slight offset to prevent re-triggering
             player.velocity.y = 0;
-            localPlayer.canDoubleJump = true;
+            player.canDoubleJump = true;
           }
         }
       }
     })(localPlayer);
+    // Check collisions with trees and boundaries.
     const potentialPos = localPlayer.position.clone();
     potentialPos.x += localPlayer.velocity.x * delta;
     potentialPos.z += localPlayer.velocity.z * delta;
-    potentialPos.x = THREE.MathUtils.clamp(potentialPos.x, -100, 100);
-    potentialPos.z = THREE.MathUtils.clamp(potentialPos.z, -100, 100);
+    // Expanded boundary: ±150
+    potentialPos.x = THREE.MathUtils.clamp(potentialPos.x, -150, 150);
+    potentialPos.z = THREE.MathUtils.clamp(potentialPos.z, -150, 150);
     if (!checkCollision(potentialPos)) {
       localPlayer.position.x = potentialPos.x;
       localPlayer.position.z = potentialPos.z;
@@ -689,8 +696,19 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Dummy collision function (adjust as needed)
+// Enhanced collision detection for trees and static objects.
 function checkCollision(pos) {
-  // Here you can add collision detection with trees or boundaries.
+  // Create a temporary bounding box for the player.
+  const playerSize = 2; // approximate size of the cube
+  const playerBox = new THREE.Box3(
+    new THREE.Vector3(pos.x - playerSize/2, pos.y - playerSize/2, pos.z - playerSize/2),
+    new THREE.Vector3(pos.x + playerSize/2, pos.y + playerSize/2, pos.z + playerSize/2)
+  );
+  // Check collision with each tree.
+  for (let tree of trees) {
+    const treeBox = new THREE.Box3().setFromObject(tree);
+    if (playerBox.intersectsBox(treeBox)) return true;
+  }
+  // Optionally, check against the parkour platforms if needed.
   return false;
 }
