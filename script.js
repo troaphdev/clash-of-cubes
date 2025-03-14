@@ -16,10 +16,8 @@ let isHost = false;
 // Flag to mark team assignment so it is set only once.
 let teamAssigned = false;
 
-// Create a new peer.
 function initializePeer(id = null) {
   peer = new Peer(id, {
-    // Uncomment and update the following options to use your own PeerJS server.
     // host: 'your-peerjs-server.com',
     // port: 9000,
     // path: '/myapp'
@@ -42,17 +40,15 @@ function initializePeer(id = null) {
 
 function setupConnection() {
   conn.on('data', (data) => {
-    // Ignore messages that you sent yourself.
+    // Ignore our own messages.
     if (data.sender === myId) return;
     handleData(data);
   });
   document.getElementById('connection-status').textContent = "Connected!";
-  // Hide the connection panel once connected.
   document.getElementById('connection-panel').style.display = 'none';
-  
-  // If this peer is the host and teams are not yet assigned,
-  // assign host as TAGGER (red) and send team assignment.
+
   if (isHost && !teamAssigned) {
+    // Host always becomes red (tagger) and joiner blue (runner)
     localTeam = "red";
     remoteTeam = "blue";
     localPlayer = redCube;
@@ -60,16 +56,16 @@ function setupConnection() {
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
+    // Now send a start signal so both players start the countdown.
+    sendMessage({ type: "startCountdown" });
+    startCountdown();
   }
-  // If this is a joiner, request a team assignment from the host.
   if (!isHost) {
+    // Joiner requests a team assignment.
     sendMessage({ type: "requestTeam" });
   }
-  // Start countdown on both sides once connection & team assignment are ready.
-  if (!gameStarted) startCountdown();
 }
 
-// Function to send a message over the connection.
 function sendMessage(message) {
   message.sender = myId;
   if (conn && conn.open) {
@@ -79,7 +75,7 @@ function sendMessage(message) {
   }
 }
 
-// Create Room: Initialize the peer with the room ID.
+// Create Room
 document.getElementById('create-room').addEventListener('click', () => {
   roomId = document.getElementById('room-id').value.trim();
   if (!roomId) {
@@ -88,10 +84,11 @@ document.getElementById('create-room').addEventListener('click', () => {
   }
   isHost = true;
   initializePeer(roomId);
-  document.getElementById('connection-status').textContent = "Room created: " + roomId + ". Waiting for connection...";
+  document.getElementById('connection-status').textContent =
+    "Room created: " + roomId + ". Waiting for connection...";
 });
 
-// Join Room: Wait for the peer to be open before connecting.
+// Join Room
 document.getElementById('join-room').addEventListener('click', () => {
   roomId = document.getElementById('room-id').value.trim();
   if (!roomId) {
@@ -100,7 +97,6 @@ document.getElementById('join-room').addEventListener('click', () => {
   }
   isHost = false;
   initializePeer();
-  // If the peer is already open, connect immediately; otherwise wait for the 'open' event.
   if (peer && peer.id) {
     connectToRoom();
   } else {
@@ -117,12 +113,12 @@ function connectToRoom() {
     console.error("Connection error:", err);
     alert("Connection error: " + err);
   });
-  document.getElementById('connection-status').textContent = "Joined room: " + roomId + ". Connecting...";
+  document.getElementById('connection-status').textContent =
+    "Joined room: " + roomId + ". Connecting...";
 }
 
 /*****************************************************
  * GAME CODE (Movement, Scoring, etc.)
- * (Mostly unchanged from your original game logic)
  *****************************************************/
 let gameStarted = false;
 let gameEnded = false;
@@ -135,23 +131,31 @@ const frictionVal = 10;
 const maxSpeed = 20;
 let playerSpeed = 0;
 
-// Runner bonus timer.
 let runnerBonusTimer = 0;
-// Restart handshake flags.
 let localReplay = false;
 let remoteReplay = false;
 
-// Team and username.
-let localTeam = null;   // "red" (tagger) or "blue" (runner)
+let localTeam = null;   // "red" or "blue"
 let remoteTeam = null;
 let localUsername = "Player";
 let remoteUsername = "Opponent";
 let redScore = 0;
 let blueScore = 0;
 
-// Player references and name tags.
 let localPlayer, remotePlayer;
 let localNameTag, remoteNameTag;
+
+/* 
+ * Helper function to compute a player's collision box based solely on the cube.
+ * Assumes the cube size is 2 units.
+ */
+function getPlayerBox(player) {
+  const size = 2;
+  return new THREE.Box3(
+    new THREE.Vector3(player.position.x - size/2, player.position.y - size/2, player.position.z - size/2),
+    new THREE.Vector3(player.position.x + size/2, player.position.y + size/2, player.position.z + size/2)
+  );
+}
 
 // ================ SCENE SETUP ================
 const scene = new THREE.Scene();
@@ -163,7 +167,6 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
-// Lights
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
 scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -179,10 +182,8 @@ directionalLight.shadow.camera.top = 100;
 directionalLight.shadow.camera.bottom = -100;
 scene.add(directionalLight);
 
-// Hilly ground function.
 function getGroundHeightAt(x, z) {
-  const frequency = 0.1;
-  const amplitude = 3;
+  const frequency = 0.1, amplitude = 3;
   return Math.sin(x * frequency) * Math.cos(z * frequency) * amplitude;
 }
 const segments = 100;
@@ -260,7 +261,7 @@ function randomSpawn() {
   const dz = Math.sin(angle) * separation / 2;
   blueCube.position.set(centerX + dx, getGroundHeightAt(centerX + dx, centerZ + dz) + 1, centerZ + dz);
   redCube.position.set(centerX - dx, getGroundHeightAt(centerX - dx, centerZ - dz) + 1, centerZ - dz);
-  const spawnAngle = Math.atan2((redCube.position.z - blueCube.position.z), (redCube.position.x - blueCube.position.x));
+  const spawnAngle = Math.atan2(redCube.position.z - blueCube.position.z, redCube.position.x - blueCube.position.x);
   blueCube.rotation.y = spawnAngle + Math.PI;
   redCube.rotation.y = spawnAngle;
   blueCube.velocity.set(0, 0, 0);
@@ -277,15 +278,16 @@ const redCube = createCharacterCube(0xff0000, {
 randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
-// For joiners, if no team assignment comes, default is runner (blue)
-if (!isHost) {
-  localTeam = "blue";
-  remoteTeam = "red";
-  localPlayer = blueCube;
-  remotePlayer = redCube;
-}
-  
-// Name tags
+
+// Removed early team assignment for joiners so that team assignment happens via messaging.
+// if (!isHost) {
+//   localTeam = "blue";
+//   remoteTeam = "red";
+//   localPlayer = blueCube;
+//   remotePlayer = redCube;
+// }
+
+// ================ NAME TAGS ================
 function createNameTag(text) {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -316,23 +318,22 @@ function updateNameTag(sprite, text) {
 }
 localNameTag = createNameTag(localUsername);
 localNameTag.position.set(0, 2.5, 0);
-localPlayer.add(localNameTag);
+blueCube.add(localNameTag);
 remoteNameTag = createNameTag(remoteUsername);
 remoteNameTag.position.set(0, 2.5, 0);
-remotePlayer.add(remoteNameTag);
+redCube.add(remoteNameTag);
 
-// ================ STATIC OBJECTS (Trees, Parkour) ================
+// ================ STATIC OBJECTS (TREES & PARKOUR) ================
 const trees = [];
+const treeBoxes = [];
 function createTree(x, z) {
   const tree = new THREE.Group();
-  // Create a trunk
   const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 6);
   const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
   const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
   trunk.position.y = 1.5;
   trunk.castShadow = true;
   tree.add(trunk);
-  // Create leaves
   const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 6);
   const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
   const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
@@ -340,27 +341,35 @@ function createTree(x, z) {
   leaves.castShadow = true;
   tree.add(leaves);
   tree.position.set(x, getGroundHeightAt(x, z), z);
+  tree.updateMatrixWorld();
+  const box = new THREE.Box3().setFromObject(tree);
+  trees.push(tree);
+  treeBoxes.push(box);
   return tree;
 }
 for (let i = 0; i < 50; i++) {
-  const x = (Math.random() * 180 - 90);
-  const z = (Math.random() * 180 - 90);
+  const x = Math.random() * 180 - 90;
+  const z = Math.random() * 180 - 90;
   if (Math.abs(x) < 20 && Math.abs(z) < 20) { i--; continue; }
   const tree = createTree(x, z);
-  trees.push(tree);
   scene.add(tree);
 }
 
 const parkourPlatforms = [];
+const platformBoxes = [];
 function createPlatform(x, y, z, width, height, depth, color = 0x888888) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
   const material = new THREE.MeshLambertMaterial({ color });
   const platform = new THREE.Mesh(geometry, material);
   platform.castShadow = true;
   platform.receiveShadow = true;
-  platform.position.set(x, y - height / 2, z);
+  platform.position.set(x, y - height/2, z);
   scene.add(platform);
   parkourPlatforms.push(platform);
+  platform.updateMatrixWorld();
+  const box = new THREE.Box3().setFromObject(platform);
+  platformBoxes.push(box);
+  return platform;
 }
 function createSpiralParkourCourse() {
   const numPlatforms = 30;
@@ -386,8 +395,8 @@ createSpiralParkourCourse();
 // ================ SCOREBOARD ================
 function updateScoreboard() {
   document.getElementById('scoreboard').innerHTML =
-    `<strong>Red (TAGGER):</strong> ${(localTeam === "red" ? localUsername : remoteUsername)} - ${redScore} &nbsp;&nbsp; ` +
-    `<strong>Blue (RUNNER):</strong> ${(localTeam === "blue" ? localUsername : remoteUsername)} - ${blueScore}`;
+    `<strong>Red (TAGGER):</strong> ${localTeam==="red" ? localUsername : remoteUsername} - ${redScore} &nbsp;&nbsp; ` +
+    `<strong>Blue (RUNNER):</strong> ${localTeam==="blue" ? localUsername : remoteUsername} - ${blueScore}`;
 }
 updateScoreboard();
 
@@ -403,14 +412,13 @@ function handleData(data) {
   if (data.type) {
     switch (data.type) {
       case "requestTeam":
-        // Host responds to a team request by sending its assignment.
-        if (isHost && !teamAssigned) {
+        // Always send team assignment to ensure synchronization.
+        if (isHost) {
           sendMessage({ type: "teamAssignment", team: "red" });
         }
         break;
       case "teamAssignment":
         if (!teamAssigned) {
-          // For joiners: host has assigned a team.
           if (data.team === "red") {
             localTeam = "blue";
             remoteTeam = "red";
@@ -425,9 +433,18 @@ function handleData(data) {
             document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
           }
           teamAssigned = true;
-          // If not already started by setupConnection, ensure countdown starts.
-          if (!gameStarted) startCountdown();
+          // Send an initial movement update so both peers are synced.
+          sendMessage({
+            type: "movement",
+            x: localPlayer.position.x,
+            y: localPlayer.position.y,
+            z: localPlayer.position.z,
+            rotation: localPlayer.rotation.y
+          });
         }
+        break;
+      case "startCountdown":
+        if (!gameStarted) startCountdown();
         break;
       case "username":
         remoteUsername = data.username || "Opponent";
@@ -435,8 +452,11 @@ function handleData(data) {
         updateScoreboard();
         break;
       case "movement":
-        remotePlayer.position.set(data.x, data.y, data.z);
-        remotePlayer.rotation.y = data.rotation;
+        if (remotePlayer) {
+          // Smoothly interpolate remote player's position.
+          remotePlayer.position.lerp(new THREE.Vector3(data.x, data.y, data.z), 0.2);
+          remotePlayer.rotation.y = data.rotation;
+        }
         break;
       case "tag":
         triggerTag();
@@ -499,17 +519,14 @@ document.addEventListener('keyup', (e) => {
   if (key in keys) keys[key] = false;
 });
 
+// Check if player is grounded.
 function isPlayerGrounded() {
-  // Use the player's bounding box for ground/platform detection.
-  const playerBox = new THREE.Box3().setFromObject(localPlayer);
-  // Ground check: compare bottom of player's box with ground height.
+  const playerBox = getPlayerBox(localPlayer);
   const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z) + 1;
   if (Math.abs(playerBox.min.y - groundY) < 0.2 && localPlayer.velocity.y <= 0) return true;
-  // Check against all parkour platforms.
-  for (let platform of parkourPlatforms) {
-    const platformBox = new THREE.Box3().setFromObject(platform);
-    if (playerBox.intersectsBox(platformBox) && localPlayer.velocity.y <= 0)
-      return true;
+  for (let i = 0; i < parkourPlatforms.length; i++) {
+    const platBox = platformBoxes[i];
+    if (playerBox.intersectsBox(platBox) && localPlayer.velocity.y <= 0) return true;
   }
   return false;
 }
@@ -517,8 +534,8 @@ function isPlayerGrounded() {
 // ================ TAG LOGIC ================
 function checkForTag() {
   if (localTeam === "red" && !gameEnded) {
-    const localBox = new THREE.Box3().setFromObject(localPlayer);
-    const remoteBox = new THREE.Box3().setFromObject(remotePlayer);
+    const localBox = getPlayerBox(localPlayer);
+    const remoteBox = getPlayerBox(remotePlayer);
     if (localBox.intersectsBox(remoteBox)) {
       sendMessage({ type: "tag" });
       triggerTag();
@@ -534,7 +551,7 @@ function triggerTag() {
   document.getElementById('endMessage').style.display = 'block';
 }
 
-// ================ RESTART LOGIC & TEAM FLIP ================
+// ================ RESTART LOGIC & TEAM SWAP ================
 function checkReplay() {
   if (localReplay && remoteReplay) {
     sendMessage({ type: "resume" });
@@ -549,14 +566,20 @@ function restartGame() {
   document.getElementById('endMessage').style.display = 'none';
   document.getElementById('restartStatus').textContent = "";
   
+  // Swap teams so both players get a chance.
   if (localTeam === "red") {
-    localTeam = "blue"; remoteTeam = "red";
-    localPlayer = blueCube; remotePlayer = redCube;
+    localTeam = "blue";
+    remoteTeam = "red";
+    localPlayer = blueCube;
+    remotePlayer = redCube;
   } else {
-    localTeam = "red"; remoteTeam = "blue";
-    localPlayer = redCube; remotePlayer = blueCube;
+    localTeam = "red";
+    remoteTeam = "blue";
+    localPlayer = redCube;
+    remotePlayer = blueCube;
   }
-  document.getElementById('roleInfo').textContent = "You are " + (localTeam === "red" ? "TAGGER (Red)" : "RUNNER (Blue)");
+  document.getElementById('roleInfo').textContent =
+    "You are " + (localTeam === "red" ? "TAGGER (Red)" : "RUNNER (Blue)");
   
   const centerX = Math.random() * 180 - 90;
   const centerZ = Math.random() * 180 - 90;
@@ -566,13 +589,14 @@ function restartGame() {
   const dz = Math.sin(angle) * separation / 2;
   blueCube.position.set(centerX + dx, getGroundHeightAt(centerX + dx, centerZ + dz) + 1, centerZ + dz);
   redCube.position.set(centerX - dx, getGroundHeightAt(centerX - dx, centerZ - dz) + 1, centerZ - dz);
-  const spawnAngle = Math.atan2((redCube.position.z - blueCube.position.z), (redCube.position.x - blueCube.position.x));
+  const spawnAngle = Math.atan2(redCube.position.z - blueCube.position.z, redCube.position.x - blueCube.position.x);
   blueCube.rotation.y = spawnAngle + Math.PI;
   redCube.rotation.y = spawnAngle;
   blueCube.velocity.set(0, 0, 0);
   redCube.velocity.set(0, 0, 0);
   
   runnerBonusTimer = 0;
+  sendMessage({ type: "startCountdown" });
   startCountdown();
 }
 
@@ -601,9 +625,17 @@ const cameraHeight = 10;
 let lastTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
+  
+  // Render the scene even if localPlayer isn't yet assigned.
+  if (!localPlayer) {
+    renderer.render(scene, camera);
+    return;
+  }
+  
   const currentTime = performance.now();
   const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
   lastTime = currentTime;
+  
   if (gameStarted && !gameEnded) {
     if (keys.a) localPlayer.rotation.y += turnSpeed * delta;
     if (keys.d) localPlayer.rotation.y -= turnSpeed * delta;
@@ -626,26 +658,23 @@ function animate() {
       localPlayer.velocity.y = 0;
       localPlayer.canDoubleJump = true;
     }
-    // Handle collision with parkour platforms
-    (function handlePlatformCollisions(player) {
-      const playerBox = new THREE.Box3().setFromObject(player);
-      for (let platform of parkourPlatforms) {
-        const platformBox = new THREE.Box3().setFromObject(platform);
-        if (playerBox.intersectsBox(platformBox) && player.velocity.y <= 0) {
-          // Only snap if player's bottom is near platform top.
-          if (Math.abs(playerBox.min.y - platformBox.max.y) < 0.3) {
-            player.position.y = platformBox.max.y + 0.1; // slight offset to prevent re-triggering
-            player.velocity.y = 0;
-            player.canDoubleJump = true;
-          }
+    for (let i = 0; i < parkourPlatforms.length; i++) {
+      platformBoxes[i].setFromObject(parkourPlatforms[i]);
+    }
+    const playerBox = getPlayerBox(localPlayer);
+    for (let i = 0; i < parkourPlatforms.length; i++) {
+      const platBox = platformBoxes[i];
+      if (playerBox.intersectsBox(platBox) && localPlayer.velocity.y <= 0) {
+        if (Math.abs(playerBox.min.y - platBox.max.y) < 0.3) {
+          localPlayer.position.y = platBox.max.y + 0.1;
+          localPlayer.velocity.y = 0;
+          localPlayer.canDoubleJump = true;
         }
       }
-    })(localPlayer);
-    // Check collisions with trees and boundaries.
+    }
     const potentialPos = localPlayer.position.clone();
     potentialPos.x += localPlayer.velocity.x * delta;
     potentialPos.z += localPlayer.velocity.z * delta;
-    // Expanded boundary: ±150
     potentialPos.x = THREE.MathUtils.clamp(potentialPos.x, -150, 150);
     potentialPos.z = THREE.MathUtils.clamp(potentialPos.z, -150, 150);
     if (!checkCollision(potentialPos)) {
@@ -656,7 +685,6 @@ function animate() {
       localPlayer.velocity.x = 0;
       localPlayer.velocity.z = 0;
     }
-    // Runner bonus mechanic
     if (localTeam === "blue") {
       if (Math.abs(playerSpeed) >= 10) {
         runnerBonusTimer += delta;
@@ -671,7 +699,6 @@ function animate() {
         runnerBonusTimer = 0;
       }
     }
-    // Send movement update.
     sendMessage({
       type: "movement",
       x: localPlayer.position.x,
@@ -681,7 +708,6 @@ function animate() {
     });
     checkForTag();
   }
-  // Camera follow
   const forward = new THREE.Vector3(Math.sin(localPlayer.rotation.y), 0, Math.cos(localPlayer.rotation.y));
   const desiredCamPos = localPlayer.position.clone().sub(forward.multiplyScalar(cameraDistance)).add(new THREE.Vector3(0, cameraHeight, 0));
   camera.position.lerp(desiredCamPos, 0.1);
@@ -696,19 +722,15 @@ window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// Enhanced collision detection for trees and static objects.
+// Enhanced collision: check against tree boxes.
 function checkCollision(pos) {
-  // Create a temporary bounding box for the player.
-  const playerSize = 2; // approximate size of the cube
+  const playerSize = 2;
   const playerBox = new THREE.Box3(
     new THREE.Vector3(pos.x - playerSize/2, pos.y - playerSize/2, pos.z - playerSize/2),
     new THREE.Vector3(pos.x + playerSize/2, pos.y + playerSize/2, pos.z + playerSize/2)
   );
-  // Check collision with each tree.
-  for (let tree of trees) {
-    const treeBox = new THREE.Box3().setFromObject(tree);
-    if (playerBox.intersectsBox(treeBox)) return true;
+  for (let box of treeBoxes) {
+    if (playerBox.intersectsBox(box)) return true;
   }
-  // Optionally, check against the parkour platforms if needed.
   return false;
 }
