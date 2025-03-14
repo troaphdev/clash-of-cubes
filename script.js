@@ -13,7 +13,7 @@ let conn = null;
 let roomId = null;
 let isHost = false;
 
-// Flag to mark team assignment
+// Flag to mark team assignment so it is set only once.
 let teamAssigned = false;
 
 // Create a new peer.
@@ -50,18 +50,21 @@ function setupConnection() {
   // Hide the connection panel once connected.
   document.getElementById('connection-panel').style.display = 'none';
   
-  // If this peer is the host, assign teams immediately and start the countdown.
+  // If this peer is the host and teams are not yet assigned,
+  // assign host as TAGGER (red) and send team assignment.
   if (isHost && !teamAssigned) {
-    // Host becomes TAGGER (red) and joining peer becomes RUNNER (blue).
     localTeam = "red";
     remoteTeam = "blue";
-    // For host, assume redCube is the local player.
     localPlayer = redCube;
     remotePlayer = blueCube;
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
     startCountdown();
+  }
+  // If this is a joiner, request a team assignment from the host.
+  if (!isHost) {
+    sendMessage({ type: "requestTeam" });
   }
 }
 
@@ -267,7 +270,7 @@ const redCube = createCharacterCube(0xff0000, {
 randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
-// Default assignment for joiners (if not assigned by host) – joiner becomes runner (blue)
+// For joiners, if no team assignment comes, default is runner (blue)
 if (!isHost) {
   localTeam = "blue";
   remoteTeam = "red";
@@ -390,10 +393,15 @@ function showBonusMessage() {
 function handleData(data) {
   if (data.type) {
     switch (data.type) {
+      case "requestTeam":
+        // Host responds to a team request by sending its assignment.
+        if (isHost && !teamAssigned) {
+          sendMessage({ type: "teamAssignment", team: "red" });
+        }
+        break;
       case "teamAssignment":
         if (!teamAssigned) {
-          // For joiners: the host sent a team assignment.
-          // If host is red, then joiner becomes blue.
+          // For joiners: host has assigned a team.
           if (data.team === "red") {
             localTeam = "blue";
             remoteTeam = "red";
