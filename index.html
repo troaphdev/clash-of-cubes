@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – Team Flip & Runner Bonus</title>
+  <title>Clash of Cubes – Team Flip & Runner Bonus (SimplePeer Version)</title>
   <style>
     body { margin: 0; overflow: hidden; }
     #info {
@@ -33,18 +33,25 @@
       margin-top: 10px;
       font-size: 14px;
     }
+    /* New connection UI */
+    #connectionUI { margin-bottom: 10px; }
+    #connectionUI input { margin-right: 5px; }
   </style>
   <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- PeerJS -->
-  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <!-- SimplePeer and Signalhub -->
+  <script src="https://unpkg.com/simple-peer@latest/simplepeer.min.js"></script>
+  <script src="https://unpkg.com/signalhub@latest/signalhub.min.js"></script>
 </head>
 <body>
   <div id="info">
-    <div>Your Peer ID: <span id="my-id">Loading...</span></div>
-    <input type="text" id="peer-id-input" placeholder="Enter peer ID to connect">
-    <button id="connect-btn">Connect</button>
-    <br><br>
+    <div id="connectionUI">
+      <input type="text" id="room-id-input" placeholder="Enter Room ID">
+      <button id="create-btn">Create Game</button>
+      <button id="join-btn">Join Game</button>
+      <span id="room-display"></span>
+    </div>
+    <div>Your ID: <span id="my-id">Loading...</span></div>
     <input type="text" id="username-input" placeholder="Enter username">
     <button id="set-username-btn">Set Username</button>
     <p id="roleInfo"></p>
@@ -56,10 +63,97 @@
   <div id="countdown">3</div>
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
+  
   <script>
     // ==========================
-    // GLOBAL SETTINGS & VARIABLES
+    // CONNECTION LOGIC USING SimplePeer + Signalhub
     // ==========================
+    let connectionPeer = null;
+    let myId = Math.random().toString(36).substr(2, 8);
+    document.getElementById('my-id').textContent = myId;
+    let roomId = null;
+    // Use a free Signalhub server
+    const hub = signalhub('clash-of-cubes', ['https://signalhub-jccqtwhdwc.now.sh']);
+
+    // Subscribe to the chosen room
+    let subscription = null;
+    
+    function startSignalSubscription(room) {
+      if(subscription) subscription.destroy();
+      subscription = hub.subscribe(room);
+      subscription.on('data', function(message) {
+        // Ignore messages from ourselves.
+        if(message.sender === myId) return;
+        // Pass the signaling data to our peer.
+        if(connectionPeer && message.data) {
+          connectionPeer.signal(message.data);
+        }
+      });
+    }
+    
+    function createConnection(isInitiator) {
+      connectionPeer = new SimplePeer({
+        initiator: isInitiator,
+        trickle: false
+      });
+      connectionPeer.on('signal', function(signalData) {
+        // Broadcast our signaling data to others in the room.
+        hub.broadcast(roomId, { sender: myId, data: signalData });
+      });
+      connectionPeer.on('connect', function() {
+        console.log("Data channel connected");
+      });
+      connectionPeer.on('data', function(data) {
+        try {
+          const message = JSON.parse(data);
+          handleData(message);
+        } catch (e) {
+          console.error("Error parsing data:", e);
+        }
+      });
+      connectionPeer.on('error', function(err) {
+        console.error("Connection error:", err);
+      });
+      connectionPeer.on('close', function() {
+        console.log("Connection closed");
+      });
+    }
+    
+    // UI for connection.
+    document.getElementById('create-btn').addEventListener('click', function() {
+      roomId = document.getElementById('room-id-input').value.trim();
+      if (!roomId) {
+        // If no room id provided, generate one.
+        roomId = Math.random().toString(36).substr(2, 8);
+        document.getElementById('room-id-input').value = roomId;
+      }
+      document.getElementById('room-display').textContent = "Room: " + roomId;
+      startSignalSubscription(roomId);
+      createConnection(true); // Initiator
+    });
+    
+    document.getElementById('join-btn').addEventListener('click', function() {
+      roomId = document.getElementById('room-id-input').value.trim();
+      if (!roomId) {
+        alert("Please enter a Room ID to join");
+        return;
+      }
+      document.getElementById('room-display').textContent = "Room: " + roomId;
+      startSignalSubscription(roomId);
+      createConnection(false); // Not initiator
+    });
+    
+    // Function to send game messages.
+    function sendMessage(message) {
+      if(connectionPeer && connectionPeer.connected) {
+        connectionPeer.send(JSON.stringify(message));
+      }
+    }
+    
+    // ==========================
+    // GAME CODE (Movement, Scoring, etc.)
+    // ==========================
+    
     let gameStarted = false;
     let gameEnded = false;
     let countdownTime = 3;
@@ -73,23 +167,23 @@
     const maxSpeed = 20;
     let playerSpeed = 0;
     
-    // For runner bonus mechanic.
-    let runnerBonusTimer = 0; // accumulates time if runner is moving fast
+    // Runner bonus timer.
+    let runnerBonusTimer = 0;
 
-    // Restart handshake flags (both must be true)
+    // Restart handshake flags.
     let localReplay = false;
     let remoteReplay = false;
     
-    // Team and username variables
+    // Team and username.
     let localTeam = null;   // "red" (tagger) or "blue" (runner)
     let remoteTeam = null;
-    let teamAssigned = false; // set once on connection
+    let teamAssigned = false;
     let localUsername = "Player";
     let remoteUsername = "Opponent";
     let redScore = 0;
     let blueScore = 0;
     
-    // Player references, nametags.
+    // Player references and name tags.
     let localPlayer, remotePlayer;
     let localNameTag, remoteNameTag;
     
@@ -356,41 +450,14 @@
     }
     
     // ==========================
-    // PEER MESSAGING SETUP
+    // GAME DATA MESSAGING (Using our connectionPeer)
     // ==========================
-    function sendMessage(message) {
-      if(conn && conn.open) {
-        conn.send(message);
-      }
-    }
-    
-    // ==========================
-    // PEERJS SETUP, TEAM & USERNAME ASSIGNMENT
-    // ==========================
-    let conn;
-    const peer = new Peer(undefined, {
-      host: '0.peerjs.com',
-      secure: true,
-      port: 443,
-      config: {
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:global.stun.twilio.com:3478' }
-        ]
-      }
-    });
-    peer.on('open', (id)=>{
-      document.getElementById('my-id').textContent = id;
-    });
-    peer.on('error', (err)=>{ console.error("Peer error:", err); });
-    
-    // Unified data handler.
     function handleData(data) {
       if(data.type) {
         switch(data.type) {
           case "teamAssignment":
             if(!teamAssigned) {
-              // Sender’s team; assign the opposite.
+              // The other peer sent their team so assign the opposite.
               if(data.team === "red") {
                 localTeam = "blue"; remoteTeam = "red";
                 localPlayer = blueCube; remotePlayer = redCube;
@@ -405,7 +472,6 @@
             }
             break;
           case "username":
-            // Always update remote username.
             remoteUsername = data.username || "Opponent";
             updateNameTag(remoteNameTag, remoteUsername);
             updateScoreboard();
@@ -418,7 +484,6 @@
             triggerTag();
             break;
           case "bonus":
-            // Synchronize bonus score update
             blueScore++;
             updateScoreboard();
             showBonusMessage();
@@ -435,49 +500,15 @@
       }
     }
     
-    peer.on('connection', (connection)=>{
-      conn = connection;
-      conn.on('data', handleData);
-      // Always send the username on connection.
-      sendMessage({ type: "username", username: localUsername });
-      if(teamAssigned) {
-        sendMessage({ type: "teamAssignment", team: localTeam });
-      }
-    });
-    
-    document.getElementById('connect-btn').addEventListener('click', ()=>{
-      const peerId = document.getElementById('peer-id-input').value;
-      if(!peerId)return;
-      conn = peer.connect(peerId);
-      conn.on('open', ()=>{
-        conn.on('data', handleData);
-        if(!teamAssigned) {
-          // Randomly assign team for initiator.
-          if(Math.random() < 0.5) {
-            localTeam = "red"; remoteTeam = "blue";
-            localPlayer = redCube; remotePlayer = blueCube;
-          } else {
-            localTeam = "blue"; remoteTeam = "red";
-            localPlayer = blueCube; remotePlayer = redCube;
-          }
-          teamAssigned = true;
-          document.getElementById('roleInfo').textContent = "You are " + (localTeam==="red" ? "TAGGER (Red)" : "RUNNER (Blue)");
-          sendMessage({ type: "teamAssignment", team: localTeam });
-          sendMessage({ type: "username", username: localUsername });
-          startCountdown();
-          updateScoreboard();
-        }
-      });
-      conn.on('error', (err)=>{ console.error("Connection error:", err); });
-    });
-    
+    // ==========================
+    // USERNAME SETTING
+    // ==========================
     document.getElementById('set-username-btn').addEventListener('click', ()=>{
       const uname = document.getElementById('username-input').value.trim();
       if(uname!==""){
         localUsername = uname;
         updateNameTag(localNameTag, localUsername);
         updateScoreboard();
-        // Always send username update.
         sendMessage({ type: "username", username: localUsername });
       }
     });
@@ -703,7 +734,7 @@
           localPlayer.velocity.x = 0;
           localPlayer.velocity.z = 0;
         }
-        // Runner bonus mechanic: only if you're the runner (blue) and moving fast.
+        // Runner bonus mechanic: if you're the runner (blue) and moving fast.
         if(localTeam === "blue") {
           if(Math.abs(playerSpeed) >= 10) {
             runnerBonusTimer += delta;
@@ -711,7 +742,6 @@
               blueScore++;
               updateScoreboard();
               showBonusMessage();
-              // Send bonus event to synchronize score.
               sendMessage({ type: "bonus" });
               runnerBonusTimer = 0;
             }
