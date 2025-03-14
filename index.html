@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – ES Modules</title>
+  <title>Clash of Cubes – ES Modules (No 404)</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Connection Panel */
@@ -89,34 +89,30 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- Our main script, using ES modules -->
+  <!-- ES modules using ?module at the package root -->
   <script type="module">
     /*****************************************************
-     * IMPORTS
+     * IMPORTS FROM UNPKG WITH ?module
      *****************************************************/
-    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js';
-    import SimplePeer from 'https://unpkg.com/simple-peer@9.11.1/index.js';
-    import signalhub from 'https://unpkg.com/signalhub@5.0.1/index.js';
-    
-    /*****************************************************
-     * GLOBAL VARIABLES
-     *****************************************************/
+    import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+    import SimplePeer from 'https://unpkg.com/simple-peer@9.11.1?module';
+    import signalhub from 'https://unpkg.com/signalhub@5.0.1?module';
+
+    // ================ P2P + SIGNALHUB SETUP ================
     let connectionPeer = null;
     let myId = Math.random().toString(36).substr(2, 8);
     document.getElementById('my-id').textContent = myId;
     let roomId = null;
 
-    // We’ll use the public Signalhub server at mafintosh.com
+    // Use the free public Signalhub server
     const hub = signalhub('clash-of-cubes', ['https://signalhub.mafintosh.com']);
-    
     let subscription = null;
+
     function startSignalSubscription(room) {
       if (subscription) subscription.close?.();
       subscription = hub.subscribe(room);
       subscription.on('data', function(message) {
-        // Ignore messages from ourselves.
         if (message.sender === myId) return;
-        // Pass the signaling data to our peer.
         if (connectionPeer && message.data) {
           connectionPeer.signal(message.data);
         }
@@ -157,13 +153,10 @@
       document.getElementById('connection-status').textContent = text;
     }
 
-    /*****************************************************
-     * UI BUTTONS
-     *****************************************************/
+    // ================ CREATE / JOIN BUTTONS ================
     document.getElementById('create-room').addEventListener('click', function() {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
-        // If no room id provided, generate one.
         roomId = Math.random().toString(36).substr(2, 8);
         document.getElementById('room-id').value = roomId;
       }
@@ -184,7 +177,7 @@
     });
 
     /*****************************************************
-     * GAME CODE (Movement, Scoring, etc.)
+     * GAME LOGIC: Movement, Tagging, Renders, etc.
      *****************************************************/
     let gameStarted = false;
     let gameEnded = false;
@@ -217,20 +210,8 @@
     // Player references and name tags.
     let localPlayer, remotePlayer;
     let localNameTag, remoteNameTag;
-    
-    // ==========================
-    // UTILITIES & TERRAIN
-    // ==========================
-    function createSeededRandom(seed) {
-      let s = seed;
-      return function() {
-        s = (s * 9301 + 49297) % 233280;
-        return s / 233280;
-      };
-    }
-    const random = createSeededRandom(123456);
-    
-    // Create scene, camera, renderer.
+
+    // ================ SCENE SETUP ================
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
@@ -240,7 +221,7 @@
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.body.appendChild(renderer.domElement);
     
-    // Lighting.
+    // Lights
     const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
     scene.add(ambientLight);
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -256,7 +237,7 @@
     directionalLight.shadow.camera.bottom = -100;
     scene.add(directionalLight);
     
-    // Terrain: Hilly ground.
+    // Hilly ground
     function getGroundHeightAt(x, z) {
       const frequency = 0.1;
       const amplitude = 3;
@@ -277,10 +258,8 @@
     ground.receiveShadow = true;
     ground.castShadow = true;
     scene.add(ground);
-    
-    // ==========================
-    // PLAYER CUBES & NAMETAGS
-    // ==========================
+
+    // ================ PLAYER CUBES ================
     function createCharacterCube(baseColor, options = {}) {
       const size = 2;
       const canvas = document.createElement("canvas");
@@ -330,7 +309,6 @@
       cube.canDoubleJump = false;
       return cube;
     }
-    
     function randomSpawn() {
       const centerX = Math.random() * 180 - 90;
       const centerZ = Math.random() * 180 - 90;
@@ -346,7 +324,6 @@
       blueCube.velocity.set(0,0,0);
       redCube.velocity.set(0,0,0);
     }
-    
     const blueCube = createCharacterCube(0x0000ff, {
       leftEye: { pupilOffsetX: 2, pupilOffsetY: 2 },
       rightEye: { pupilOffsetX: -2, pupilOffsetY: 2 }
@@ -358,10 +335,10 @@
     randomSpawn();
     scene.add(blueCube);
     scene.add(redCube);
-    // Initially assign local and remote (will be updated upon connection).
     localPlayer = blueCube;
     remotePlayer = redCube;
     
+    // Name tags
     function createNameTag(text) {
       const canvas = document.createElement("canvas");
       canvas.width = 256;
@@ -396,10 +373,8 @@
     remoteNameTag = createNameTag(remoteUsername);
     remoteNameTag.position.set(0, 2.5, 0);
     remotePlayer.add(remoteNameTag);
-    
-    // ==========================
-    // STATIC OBJECTS: TREES & PARKOUR
-    // ==========================
+
+    // ================ STATIC OBJECTS ================
     const trees = [];
     function createTree(x, z) {
       const tree = new THREE.Group();
@@ -458,35 +433,28 @@
       createPlatform(finalX, finalY, finalZ,4,1,4,0xffd700);
     }
     createSpiralParkourCourse();
-    
-    // ==========================
-    // SCOREBOARD UPDATE
-    // ==========================
+
+    // ================ SCOREBOARD ================
     function updateScoreboard() {
       document.getElementById('scoreboard').innerHTML =
         `<strong>Red (TAGGER):</strong> ${(localTeam==="red" ? localUsername : remoteUsername)} - ${redScore} &nbsp;&nbsp; ` +
         `<strong>Blue (RUNNER):</strong> ${(localTeam==="blue" ? localUsername : remoteUsername)} - ${blueScore}`;
     }
     updateScoreboard();
-    
-    // ==========================
-    // BONUS MESSAGE
-    // ==========================
+
+    // ================ BONUS MESSAGE ================
     function showBonusMessage(){
       const bonusDiv = document.getElementById('bonusMessage');
       bonusDiv.style.display = 'block';
       setTimeout(() => { bonusDiv.style.display = 'none'; }, 1000);
     }
-    
-    // ==========================
-    // GAME DATA MESSAGING
-    // ==========================
+
+    // ================ GAME DATA MESSAGING ================
     function handleData(data) {
       if(data.type) {
         switch(data.type) {
           case "teamAssignment":
             if(!teamAssigned) {
-              // The other peer sent their team so assign the opposite.
               if(data.team === "red") {
                 localTeam = "blue"; remoteTeam = "red";
                 localPlayer = blueCube; remotePlayer = redCube;
@@ -528,16 +496,13 @@
         }
       }
     }
-    
     function sendMessage(message) {
       if(connectionPeer && connectionPeer.connected) {
         connectionPeer.send(JSON.stringify(message));
       }
     }
-    
-    // ==========================
-    // USERNAME SETTING
-    // ==========================
+
+    // ================ USERNAME SETTING ================
     document.getElementById('username').addEventListener('change', () => {
       const uname = document.getElementById('username').value.trim();
       if(uname!==""){
@@ -547,10 +512,8 @@
         sendMessage({ type: "username", username: localUsername });
       }
     });
-    
-    // ==========================
-    // INPUT HANDLING
-    // ==========================
+
+    // ================ INPUT HANDLING ================
     const keys = {w:false, a:false, s:false, d:false, ' ':false};
     document.addEventListener('keydown', (e)=>{
       const key = e.key.toLowerCase();
@@ -568,7 +531,6 @@
         }
         keys[key] = true;
       }
-      // Restart key – both must press R.
       if(gameEnded && key==='r'){
         localReplay = true;
         document.getElementById('restartStatus').textContent = "You pressed restart. Waiting for opponent...";
@@ -591,10 +553,8 @@
       }
       return false;
     }
-    
-    // ==========================
-    // TAG LOGIC
-    // ==========================
+
+    // ================ TAG LOGIC ================
     function checkForTag(){
       if(localTeam==="red" && !gameEnded){
         const localBox = new THREE.Box3().setFromObject(localPlayer);
@@ -613,10 +573,8 @@
       document.getElementById('endMessage').textContent = "TAG! Press R to restart if you agree.";
       document.getElementById('endMessage').style.display = 'block';
     }
-    
-    // ==========================
-    // RESTART LOGIC & TEAM FLIP
-    // ==========================
+
+    // ================ RESTART LOGIC & TEAM FLIP ================
     function checkReplay(){
       if(localReplay && remoteReplay){
         sendMessage({ type: "resume" });
@@ -631,7 +589,6 @@
       document.getElementById('endMessage').style.display = 'none';
       document.getElementById('restartStatus').textContent = "";
       
-      // Flip teams.
       if(localTeam === "red"){
         localTeam = "blue"; remoteTeam = "red";
         localPlayer = blueCube; remotePlayer = redCube;
@@ -641,7 +598,6 @@
       }
       document.getElementById('roleInfo').textContent = "You are " + (localTeam==="red" ? "TAGGER (Red)" : "RUNNER (Blue)");
       
-      // Reset positions.
       const centerX = Math.random()*180 - 90;
       const centerZ = Math.random()*180 - 90;
       const separation = 10;
@@ -656,14 +612,11 @@
       blueCube.velocity.set(0,0,0);
       redCube.velocity.set(0,0,0);
       
-      // Reset runner bonus timer.
       runnerBonusTimer = 0;
       startCountdown();
     }
-    
-    // ==========================
-    // COUNTDOWN
-    // ==========================
+
+    // ================ COUNTDOWN ================
     const countdownDiv = document.getElementById('countdown');
     function startCountdown(){
       if(gameStarted)return;
@@ -681,10 +634,8 @@
         }
       },1000);
     }
-    
-    // ==========================
-    // COLLISION DETECTION & MOVEMENT
-    // ==========================
+
+    // ================ COLLISION & MOVEMENT ================
     function checkCollision(newPos){
       const dx = newPos.x - remotePlayer.position.x;
       const dz = newPos.z - remotePlayer.position.z;
@@ -707,7 +658,7 @@
       }
       return false;
     }
-    
+
     const cameraDistance = 15;
     const cameraHeight = 10;
     let lastTime = performance.now();
@@ -769,7 +720,7 @@
           localPlayer.velocity.x = 0;
           localPlayer.velocity.z = 0;
         }
-        // Runner bonus mechanic: if you're the runner (blue) and moving fast.
+        // Runner bonus mechanic
         if(localTeam === "blue") {
           if(Math.abs(playerSpeed) >= 10) {
             runnerBonusTimer += delta;
@@ -794,7 +745,7 @@
         });
         checkForTag();
       }
-      // Camera follow.
+      // Camera follow
       const forward = new THREE.Vector3(Math.sin(localPlayer.rotation.y), 0, Math.cos(localPlayer.rotation.y));
       const desiredCamPos = localPlayer.position.clone().sub(forward.multiplyScalar(cameraDistance)).add(new THREE.Vector3(0,cameraHeight,0));
       camera.position.lerp(desiredCamPos,0.1);
@@ -803,9 +754,6 @@
     }
     animate();
     
-    // ==========================
-    // WINDOW RESIZE
-    // ==========================
     window.addEventListener('resize', ()=>{
       camera.aspect = window.innerWidth/window.innerHeight;
       camera.updateProjectionMatrix();
