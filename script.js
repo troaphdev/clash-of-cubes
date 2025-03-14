@@ -16,6 +16,9 @@ let isHost = false;
 // Flag to mark team assignment so it is set only once.
 let teamAssigned = false;
 
+// For joiners: if no assignment is received after a delay, re-request it.
+let teamRequestTimeout = null;
+
 function initializePeer(id = null) {
   peer = new Peer(id, {
     // host: 'your-peerjs-server.com',
@@ -48,7 +51,7 @@ function setupConnection() {
   document.getElementById('connection-panel').style.display = 'none';
 
   if (isHost && !teamAssigned) {
-    // Host always becomes red (tagger) and joiner blue (runner)
+    // Host is always the tagger (red) and joiner becomes runner (blue)
     localTeam = "red";
     remoteTeam = "blue";
     localPlayer = redCube;
@@ -56,13 +59,19 @@ function setupConnection() {
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
-    // Now send a start signal so both players start the countdown.
+    // Start the countdown on both ends.
     sendMessage({ type: "startCountdown" });
     startCountdown();
   }
   if (!isHost) {
-    // Joiner requests a team assignment.
+    // Joiner: request team assignment and set a timer to retry if needed.
     sendMessage({ type: "requestTeam" });
+    teamRequestTimeout = setTimeout(() => {
+      if (!teamAssigned) {
+        console.log("No team assignment received, re-requesting...");
+        sendMessage({ type: "requestTeam" });
+      }
+    }, 2000);
   }
 }
 
@@ -146,8 +155,7 @@ let localPlayer, remotePlayer;
 let localNameTag, remoteNameTag;
 
 /* 
- * Helper function to compute a player's collision box based solely on the cube.
- * Assumes the cube size is 2 units.
+ * Helper: compute the collision box for a player cube (size=2).
  */
 function getPlayerBox(player) {
   const size = 2;
@@ -279,14 +287,6 @@ randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
 
-// Removed early team assignment for joiners so that team assignment happens via messaging.
-// if (!isHost) {
-//   localTeam = "blue";
-//   remoteTeam = "red";
-//   localPlayer = blueCube;
-//   remotePlayer = redCube;
-// }
-
 // ================ NAME TAGS ================
 function createNameTag(text) {
   const canvas = document.createElement("canvas");
@@ -412,7 +412,7 @@ function handleData(data) {
   if (data.type) {
     switch (data.type) {
       case "requestTeam":
-        // Always send team assignment to ensure synchronization.
+        // Always send team assignment when requested.
         if (isHost) {
           sendMessage({ type: "teamAssignment", team: "red" });
         }
@@ -420,6 +420,7 @@ function handleData(data) {
       case "teamAssignment":
         if (!teamAssigned) {
           if (data.team === "red") {
+            // Host is red, so joiner becomes blue.
             localTeam = "blue";
             remoteTeam = "red";
             localPlayer = blueCube;
@@ -433,7 +434,8 @@ function handleData(data) {
             document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
           }
           teamAssigned = true;
-          // Send an initial movement update so both peers are synced.
+          if (teamRequestTimeout) clearTimeout(teamRequestTimeout);
+          // Send an immediate movement update.
           sendMessage({
             type: "movement",
             x: localPlayer.position.x,
@@ -441,6 +443,10 @@ function handleData(data) {
             z: localPlayer.position.z,
             rotation: localPlayer.rotation.y
           });
+          // Start countdown if it hasn't started.
+          if (!gameStarted) {
+            startCountdown();
+          }
         }
         break;
       case "startCountdown":
@@ -453,7 +459,7 @@ function handleData(data) {
         break;
       case "movement":
         if (remotePlayer) {
-          // Smoothly interpolate remote player's position.
+          // Interpolate remote player's movement.
           remotePlayer.position.lerp(new THREE.Vector3(data.x, data.y, data.z), 0.2);
           remotePlayer.rotation.y = data.rotation;
         }
@@ -519,7 +525,7 @@ document.addEventListener('keyup', (e) => {
   if (key in keys) keys[key] = false;
 });
 
-// Check if player is grounded.
+// Check if localPlayer is grounded.
 function isPlayerGrounded() {
   const playerBox = getPlayerBox(localPlayer);
   const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z) + 1;
@@ -626,7 +632,7 @@ let lastTime = performance.now();
 function animate() {
   requestAnimationFrame(animate);
   
-  // Render the scene even if localPlayer isn't yet assigned.
+  // Render scene even if localPlayer is not yet set.
   if (!localPlayer) {
     renderer.render(scene, camera);
     return;
