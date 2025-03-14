@@ -61,7 +61,7 @@ function setupConnection() {
     teamAssigned = true;
     document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
     sendMessage({ type: "teamAssignment", team: "red" });
-    // Start the countdown on both sides.
+    // Start the countdown on both ends.
     sendMessage({ type: "startCountdown" });
     startCountdown();
   }
@@ -110,12 +110,16 @@ document.getElementById('join-room').addEventListener('click', () => {
   isHost = false;
   // For joiner, initializePeer without a preset id.
   initializePeer();
-  // Always wait for the joiner's peer to be open, then attempt connection.
-  peer.on('open', () => {
+  // Immediately check if peer is open. If not, listen for the 'open' event.
+  if (peer && peer.id) {
     console.log("Joiner peer open with ID:", peer.id);
-    // Delay connection slightly to ensure host is ready.
-    setTimeout(connectToRoom, 500);
-  });
+    connectToRoom();
+  } else {
+    peer.on('open', () => {
+      console.log("Joiner peer open with ID:", peer.id);
+      connectToRoom();
+    });
+  }
 });
 
 function connectToRoom() {
