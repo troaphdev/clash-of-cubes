@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – Signalhub Edition</title>
+  <title>Clash of Cubes – Ably Pub/Sub Edition</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Connection Panel */
@@ -89,97 +89,78 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- ES Modules: Three & SimplePeer from Skypack; signalhub from Skypack -->
+  <!-- Load ES Modules: Three.js and SimplePeer from Skypack -->
   <script type="module">
     import * as THREE from 'https://cdn.skypack.dev/three@0.152.2';
-    import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1';
-    import signalhub from 'https://cdn.skypack.dev/signalhub';
+    // We no longer use SimplePeer here.
+    
+    // Import Ably's JS SDK as an ES module from Skypack.
+    import Ably from 'https://cdn.skypack.dev/ably';
 
     /*****************************************************
-     * CONNECTION SETUP USING SIGNALHUB (Pub/Sub)
+     * PUB/SUB CONNECTION USING ABLY
      *****************************************************/
-    let connectionPeer = null;
+    // Replace with your Ably API key
+    const ably = new Ably.Realtime('YOUR_API_KEY');
+    
+    // Each player gets a random ID.
     let myId = Math.random().toString(36).substr(2, 8);
     document.getElementById('my-id').textContent = myId;
+    
+    // The room ID will be provided by the user.
     let roomId = null;
-
-    // Use a public Signalhub server over HTTPS with an alternate fallback.
-    const hub = signalhub('clash-of-cubes', [
-      'https://signalhub.mafintosh.com',
-      'https://signalhub-jccqtwhdw.now.sh'
-    ]);
-    let subscription = null;
-
-    // Subscribe to the channel (room) for signaling.
-    function startSignalSubscription(room) {
-      if (subscription && subscription.close) subscription.close();
-      subscription = hub.subscribe(room);
-      subscription.on('data', function(message) {
-        // Ignore messages from self.
-        if (message.sender === myId) return;
-        // Pass the signal data to SimplePeer.
-        if (connectionPeer && message.data) {
-          connectionPeer.signal(message.data);
-        }
+    let channel = null;
+    let isHost = false; // determined by whether you create or join the room
+    
+    // Subscribe to the Ably channel for game messages.
+    function subscribeToChannel(room) {
+      channel = ably.channels.get(room);
+      channel.subscribe("game", msg => {
+        // Ignore our own messages.
+        if (msg.data.sender === myId) return;
+        handleData(msg.data);
       });
     }
     
-    // Create a WebRTC connection via SimplePeer.
-    function createConnection(isInitiator) {
-      connectionPeer = new SimplePeer({ initiator: isInitiator, trickle: false });
-      connectionPeer.on('signal', function(signalData) {
-        // Broadcast our signal over the pub/sub channel.
-        hub.broadcast(roomId, { sender: myId, data: signalData });
-      });
-      connectionPeer.on('connect', function() {
-        console.log("Data channel connected");
-        updateConnectionStatus("Connected!");
-        // Hide the connection panel once connected.
-        document.getElementById('connection-panel').style.display = 'none';
-      });
-      connectionPeer.on('data', function(data) {
-        try {
-          const message = JSON.parse(data);
-          handleData(message);
-        } catch (e) {
-          console.error("Error parsing data:", e);
-        }
-      });
-      connectionPeer.on('error', function(err) {
-        console.error("Connection error:", err);
-        updateConnectionStatus("Connection error.");
-      });
-      connectionPeer.on('close', function() {
-        console.log("Connection closed");
-        updateConnectionStatus("Connection closed.");
-      });
+    // Send a message over the channel. We add our sender ID.
+    function sendMessage(message) {
+      message.sender = myId;
+      if (channel) {
+        channel.publish("game", message, err => {
+          if (err) console.error("Ably publish error:", err);
+        });
+      }
     }
     
+    // Update the connection status UI.
     function updateConnectionStatus(text) {
       document.getElementById('connection-status').textContent = text;
     }
     
-    // Button event listeners for creating or joining a room.
-    document.getElementById('create-room').addEventListener('click', function() {
+    // Button event listeners.
+    document.getElementById('create-room').addEventListener('click', () => {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
         roomId = Math.random().toString(36).substr(2, 8);
         document.getElementById('room-id').value = roomId;
       }
-      updateConnectionStatus("Room created: " + roomId + ". Waiting for opponent...");
-      startSignalSubscription(roomId);
-      createConnection(true); // Initiator (host)
+      isHost = true;
+      subscribeToChannel(roomId);
+      updateConnectionStatus("Room created: " + roomId + ". Connected!");
+      // Hide the connection panel.
+      document.getElementById('connection-panel').style.display = 'none';
     });
     
-    document.getElementById('join-room').addEventListener('click', function() {
+    document.getElementById('join-room').addEventListener('click', () => {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
         alert("Please enter a Room ID to join");
         return;
       }
-      updateConnectionStatus("Joining room: " + roomId + ". Waiting for connection...");
-      startSignalSubscription(roomId);
-      createConnection(false); // Non-initiator (client)
+      isHost = false;
+      subscribeToChannel(roomId);
+      updateConnectionStatus("Joined room: " + roomId + ". Connected!");
+      document.getElementById('connection-panel').style.display = 'none';
     });
 
     /*****************************************************
@@ -244,7 +225,7 @@
     directionalLight.shadow.camera.bottom = -100;
     scene.add(directionalLight);
     
-    // Hilly ground
+    // Hilly ground function.
     function getGroundHeightAt(x, z) {
       const frequency = 0.1;
       const amplitude = 3;
@@ -253,11 +234,11 @@
     const segments = 100;
     const groundGeometry = new THREE.PlaneGeometry(200,200,segments,segments);
     groundGeometry.rotateX(-Math.PI/2);
-    for(let i=0; i<groundGeometry.attributes.position.count; i++){
+    for (let i = 0; i < groundGeometry.attributes.position.count; i++) {
       let x = groundGeometry.attributes.position.getX(i);
       let z = groundGeometry.attributes.position.getZ(i);
-      let y = getGroundHeightAt(x,z);
-      groundGeometry.attributes.position.setY(i,y);
+      let y = getGroundHeightAt(x, z);
+      groundGeometry.attributes.position.setY(i, y);
     }
     groundGeometry.computeVertexNormals();
     const groundMaterial = new THREE.MeshLambertMaterial({color: 0x228B22});
@@ -504,8 +485,11 @@
       }
     }
     function sendMessage(message) {
-      if (connectionPeer && connectionPeer.connected) {
-        connectionPeer.send(JSON.stringify(message));
+      message.sender = myId;
+      if (channel) {
+        channel.publish("game", message, err => {
+          if (err) console.error("Ably publish error:", err);
+        });
       }
     }
 
