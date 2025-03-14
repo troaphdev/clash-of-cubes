@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – Ably Pub/Sub Edition</title>
+  <title>Clash of Cubes – PeerJS Edition</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Connection Panel */
@@ -60,6 +60,8 @@
       font-size: 14px;
     }
   </style>
+  <!-- Include PeerJS from CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.4.7/dist/peerjs.min.js"></script>
 </head>
 <body>
   <!-- Connection Panel -->
@@ -89,52 +91,67 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- Load ES Modules: Three.js and SimplePeer from Skypack -->
+  <!-- Load ES Modules: Three.js from Skypack -->
   <script type="module">
     import * as THREE from 'https://cdn.skypack.dev/three@0.152.2';
-    // We no longer use SimplePeer here.
-    
-    // Import Ably's JS SDK as an ES module from Skypack.
-    import Ably from 'https://cdn.skypack.dev/ably';
 
     /*****************************************************
-     * PUB/SUB CONNECTION USING ABLY
+     * PEER-TO-PEER CONNECTION USING PEERJS
      *****************************************************/
-    // Replace with your Ably API key
-    const ably = new Ably.Realtime('ODNMZGRLZDGTZMIXMC0ZZMIYLWI1ZGETNWM3MTI4MMM4NMYZ');
-    
-    // Each player gets a random ID.
+    // Generate a random local ID.
     let myId = Math.random().toString(36).substr(2, 8);
     document.getElementById('my-id').textContent = myId;
     
-    // The room ID will be provided by the user.
+    // PeerJS objects.
+    let peer = null;
+    let conn = null;
     let roomId = null;
-    let channel = null;
-    let isHost = false; // determined by whether you create or join the room
+    let isHost = false;
     
-    // Subscribe to the Ably channel for game messages.
-    function subscribeToChannel(room) {
-      channel = ably.channels.get(room);
-      channel.subscribe("game", msg => {
-        // Ignore our own messages.
-        if (msg.data.sender === myId) return;
-        handleData(msg.data);
+    // Create a new peer. If you want to self-host the signaling server, change the options here.
+    function initializePeer(id = null) {
+      // If an id is provided, use it (for host); otherwise let PeerJS assign one.
+      peer = new Peer(id, {
+        // Uncomment and update the following options to use your own PeerJS server.
+        // host: 'your-peerjs-server.com',
+        // port: 9000,
+        // path: '/myapp'
+      });
+      peer.on('open', (id) => {
+        console.log('Peer connected with ID:', id);
+      });
+      // If a peer connects to you (only happens if you are the host).
+      peer.on('connection', (incomingConn) => {
+        if (!conn) {
+          conn = incomingConn;
+          setupConnection();
+        }
+      });
+      peer.on('error', (err) => {
+        console.error(err);
+        alert("PeerJS error: " + err);
       });
     }
     
-    // Send a message over the channel. We add our sender ID.
-    function sendMessage(message) {
-      message.sender = myId;
-      if (channel) {
-        channel.publish("game", message, err => {
-          if (err) console.error("Ably publish error:", err);
-        });
-      }
+    function setupConnection() {
+      conn.on('data', (data) => {
+        // Ignore messages that you sent yourself.
+        if (data.sender === myId) return;
+        handleData(data);
+      });
+      document.getElementById('connection-status').textContent = "Connected!";
+      // Hide the connection panel once connected.
+      document.getElementById('connection-panel').style.display = 'none';
     }
     
-    // Update the connection status UI.
-    function updateConnectionStatus(text) {
-      document.getElementById('connection-status').textContent = text;
+    // Function to send a message over the connection.
+    function sendMessage(message) {
+      message.sender = myId;
+      if (conn && conn.open) {
+        conn.send(message);
+      } else {
+        console.warn("No connection available to send message:", message);
+      }
     }
     
     // Button event listeners.
@@ -145,10 +162,9 @@
         document.getElementById('room-id').value = roomId;
       }
       isHost = true;
-      subscribeToChannel(roomId);
-      updateConnectionStatus("Room created: " + roomId + ". Connected!");
-      // Hide the connection panel.
-      document.getElementById('connection-panel').style.display = 'none';
+      initializePeer(roomId);
+      // For host, wait for a connection.
+      document.getElementById('connection-status').textContent = "Room created: " + roomId + ". Waiting for connection...";
     });
     
     document.getElementById('join-room').addEventListener('click', () => {
@@ -158,11 +174,19 @@
         return;
       }
       isHost = false;
-      subscribeToChannel(roomId);
-      updateConnectionStatus("Joined room: " + roomId + ". Connected!");
-      document.getElementById('connection-panel').style.display = 'none';
+      initializePeer();
+      // Connect to the host using the provided roomId.
+      conn = peer.connect(roomId);
+      conn.on('open', () => {
+        setupConnection();
+      });
+      conn.on('error', (err) => {
+        console.error("Connection error:", err);
+        alert("Connection error: " + err);
+      });
+      document.getElementById('connection-status').textContent = "Joined room: " + roomId + ". Connecting...";
     });
-
+    
     /*****************************************************
      * GAME CODE (Movement, Scoring, etc.)
      * (Mostly unchanged from your original game logic)
@@ -198,7 +222,7 @@
     // Player references and name tags.
     let localPlayer, remotePlayer;
     let localNameTag, remoteNameTag;
-
+    
     // ================ SCENE SETUP ================
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87ceeb);
@@ -246,7 +270,7 @@
     ground.receiveShadow = true;
     ground.castShadow = true;
     scene.add(ground);
-
+    
     // ================ PLAYER CUBES ================
     function createCharacterCube(baseColor, options = {}) {
       const size = 2;
@@ -361,7 +385,7 @@
     remoteNameTag = createNameTag(remoteUsername);
     remoteNameTag.position.set(0, 2.5, 0);
     remotePlayer.add(remoteNameTag);
-
+    
     // ================ STATIC OBJECTS (Trees, Parkour) ================
     const trees = [];
     function createTree(x, z) {
@@ -421,7 +445,7 @@
       createPlatform(finalX, finalY, finalZ, 4, 1, 4, 0xffd700);
     }
     createSpiralParkourCourse();
-
+    
     // ================ SCOREBOARD ================
     function updateScoreboard() {
       document.getElementById('scoreboard').innerHTML =
@@ -429,14 +453,14 @@
         `<strong>Blue (RUNNER):</strong> ${(localTeam === "blue" ? localUsername : remoteUsername)} - ${blueScore}`;
     }
     updateScoreboard();
-
+    
     // ================ BONUS MESSAGE ================
     function showBonusMessage() {
       const bonusDiv = document.getElementById('bonusMessage');
       bonusDiv.style.display = 'block';
       setTimeout(() => { bonusDiv.style.display = 'none'; }, 1000);
     }
-
+    
     // ================ GAME DATA MESSAGING ================
     function handleData(data) {
       if (data.type) {
@@ -484,15 +508,7 @@
         }
       }
     }
-    function sendMessage(message) {
-      message.sender = myId;
-      if (channel) {
-        channel.publish("game", message, err => {
-          if (err) console.error("Ably publish error:", err);
-        });
-      }
-    }
-
+    
     // ================ USERNAME SETTING ================
     document.getElementById('username').addEventListener('change', () => {
       const uname = document.getElementById('username').value.trim();
@@ -503,7 +519,7 @@
         sendMessage({ type: "username", username: localUsername });
       }
     });
-
+    
     // ================ INPUT HANDLING ================
     const keys = { w: false, a: false, s: false, d: false, ' ': false };
     document.addEventListener('keydown', (e) => {
@@ -544,7 +560,7 @@
       }
       return false;
     }
-
+    
     // ================ TAG LOGIC ================
     function checkForTag() {
       if (localTeam === "red" && !gameEnded) {
@@ -564,7 +580,7 @@
       document.getElementById('endMessage').textContent = "TAG! Press R to restart if you agree.";
       document.getElementById('endMessage').style.display = 'block';
     }
-
+    
     // ================ RESTART LOGIC & TEAM FLIP ================
     function checkReplay() {
       if (localReplay && remoteReplay) {
@@ -606,7 +622,7 @@
       runnerBonusTimer = 0;
       startCountdown();
     }
-
+    
     // ================ COUNTDOWN ================
     const countdownDiv = document.getElementById('countdown');
     function startCountdown() {
@@ -625,7 +641,7 @@
         }
       }, 1000);
     }
-
+    
     // ================ COLLISION & MOVEMENT ================
     const cameraDistance = 15;
     const cameraHeight = 10;
@@ -727,6 +743,13 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
+    
+    // Dummy collision function (adjust as needed)
+    function checkCollision(pos) {
+      // Here you can add collision detection with trees or boundaries.
+      return false;
+    }
+    
   </script>
 </body>
 </html>
