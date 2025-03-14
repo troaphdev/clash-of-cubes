@@ -1,80 +1,79 @@
 body {
-    margin: 0;
-    overflow: hidden;
-  }
-  
-  /* Connection Panel */
-  #connection-panel {
-    position: absolute;
-    top: 10px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(255, 255, 255, 0.95);
-    padding: 15px;
-    border-radius: 8px;
-    font-family: Arial, sans-serif;
-    z-index: 20;
-    text-align: center;
-  }
-  
-  #connection-panel input {
-    margin: 5px;
-    padding: 5px;
-    font-size: 16px;
-  }
-  
-  #connection-panel button {
-    margin: 5px;
-    padding: 7px 12px;
-    font-size: 16px;
-    cursor: pointer;
-  }
-  
-  #connection-status {
-    margin-top: 10px;
-    font-weight: bold;
-  }
-  
-  /* Info Panel (instructions) */
-  #info {
-    position: absolute;
-    bottom: 10px;
-    left: 10px;
-    z-index: 10;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 10px;
-    font-family: Arial, sans-serif;
-    max-width: 300px;
-  }
-  
-  /* Countdown and messages */
-  #countdown, #endMessage, #bonusMessage {
-    position: absolute;
-    left: 50%;
-    transform: translateX(-50%);
-    font-size: 64px;
-    z-index: 9;
-    display: none;
-  }
-  
-  #countdown {
-    top: 50%;
-    color: white;
-  }
-  
-  #endMessage {
-    top: 40%;
-    color: white;
-  }
-  
-  #bonusMessage {
-    top: 70%;
-    color: yellow;
-    font-size: 48px;
-  }
-  
-  #scoreboard, #restartStatus {
-    margin-top: 10px;
-    font-size: 14px;
-  }
-  
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Connection Panel */
+#connection-panel {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 15px;
+  border-radius: 8px;
+  font-family: Arial, sans-serif;
+  z-index: 20;
+  text-align: center;
+}
+
+#connection-panel input {
+  margin: 5px;
+  padding: 5px;
+  font-size: 16px;
+}
+
+#connection-panel button {
+  margin: 5px;
+  padding: 7px 12px;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+#connection-status {
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+/* Info Panel (instructions) */
+#info {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 10px;
+  font-family: Arial, sans-serif;
+  max-width: 300px;
+}
+
+/* Countdown and messages */
+#countdown, #endMessage, #bonusMessage {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 64px;
+  z-index: 9;
+  display: none;
+}
+
+#countdown {
+  top: 50%;
+  color: white;
+}
+
+#endMessage {
+  top: 40%;
+  color: white;
+}
+
+#bonusMessage {
+  top: 70%;
+  color: yellow;
+  font-size: 48px;
+}
+
+#scoreboard, #restartStatus {
+  margin-top: 10px;
+  font-size: 14px;
+}

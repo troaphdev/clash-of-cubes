@@ -13,6 +13,9 @@ let conn = null;
 let roomId = null;
 let isHost = false;
 
+// Flag to mark team assignment
+let teamAssigned = false;
+
 // Create a new peer.
 function initializePeer(id = null) {
   peer = new Peer(id, {
@@ -46,6 +49,20 @@ function setupConnection() {
   document.getElementById('connection-status').textContent = "Connected!";
   // Hide the connection panel once connected.
   document.getElementById('connection-panel').style.display = 'none';
+  
+  // If this peer is the host, assign teams immediately and start the countdown.
+  if (isHost && !teamAssigned) {
+    // Host becomes TAGGER (red) and joining peer becomes RUNNER (blue).
+    localTeam = "red";
+    remoteTeam = "blue";
+    // For host, assume redCube is the local player.
+    localPlayer = redCube;
+    remotePlayer = blueCube;
+    teamAssigned = true;
+    document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
+    sendMessage({ type: "teamAssignment", team: "red" });
+    startCountdown();
+  }
 }
 
 // Function to send a message over the connection.
@@ -117,7 +134,6 @@ let remoteReplay = false;
 // Team and username.
 let localTeam = null;   // "red" (tagger) or "blue" (runner)
 let remoteTeam = null;
-let teamAssigned = false;
 let localUsername = "Player";
 let remoteUsername = "Opponent";
 let redScore = 0;
@@ -251,9 +267,14 @@ const redCube = createCharacterCube(0xff0000, {
 randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
-localPlayer = blueCube;
-remotePlayer = redCube;
-
+// Default assignment for joiners (if not assigned by host) – joiner becomes runner (blue)
+if (!isHost) {
+  localTeam = "blue";
+  remoteTeam = "red";
+  localPlayer = blueCube;
+  remotePlayer = redCube;
+}
+  
 // Name tags
 function createNameTag(text) {
   const canvas = document.createElement("canvas");
@@ -371,16 +392,22 @@ function handleData(data) {
     switch (data.type) {
       case "teamAssignment":
         if (!teamAssigned) {
+          // For joiners: the host sent a team assignment.
+          // If host is red, then joiner becomes blue.
           if (data.team === "red") {
-            localTeam = "blue"; remoteTeam = "red";
-            localPlayer = blueCube; remotePlayer = redCube;
+            localTeam = "blue";
+            remoteTeam = "red";
+            localPlayer = blueCube;
+            remotePlayer = redCube;
+            document.getElementById('roleInfo').textContent = "You are RUNNER (Blue)";
           } else {
-            localTeam = "red"; remoteTeam = "blue";
-            localPlayer = redCube; remotePlayer = blueCube;
+            localTeam = "red";
+            remoteTeam = "blue";
+            localPlayer = redCube;
+            remotePlayer = blueCube;
+            document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
           }
           teamAssigned = true;
-          document.getElementById('roleInfo').textContent = "You are " + (localTeam === "red" ? "TAGGER (Red)" : "RUNNER (Blue)");
-          sendMessage({ type: "teamAssignment", team: localTeam });
           startCountdown();
         }
         break;
