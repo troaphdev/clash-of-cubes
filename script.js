@@ -99,19 +99,25 @@ document.getElementById('join-room').addEventListener('click', () => {
   }
   isHost = false;
   initializePeer();
-  // Wait until the peer is open before connecting.
-  peer.on('open', (id) => {
-    conn = peer.connect(roomId);
-    conn.on('open', () => {
-      setupConnection();
-    });
-    conn.on('error', (err) => {
-      console.error("Connection error:", err);
-      alert("Connection error: " + err);
-    });
-    document.getElementById('connection-status').textContent = "Joined room: " + roomId + ". Connecting...";
-  });
+  // If the peer is already open, connect immediately; otherwise wait for the 'open' event.
+  if (peer && peer.id) {
+    connectToRoom();
+  } else {
+    peer.on('open', connectToRoom);
+  }
 });
+
+function connectToRoom() {
+  conn = peer.connect(roomId);
+  conn.on('open', () => {
+    setupConnection();
+  });
+  conn.on('error', (err) => {
+    console.error("Connection error:", err);
+    alert("Connection error: " + err);
+  });
+  document.getElementById('connection-status').textContent = "Joined room: " + roomId + ". Connecting...";
+}
 
 /*****************************************************
  * GAME CODE (Movement, Scoring, etc.)
