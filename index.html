@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – ES Modules (No 404)</title>
+  <title>Clash of Cubes – Skypack Edition</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Connection Panel */
@@ -89,16 +89,15 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- ES modules using ?module at the package root -->
+  <!-- ES modules via Skypack (no 404 errors) -->
   <script type="module">
-    /*****************************************************
-     * IMPORTS FROM UNPKG WITH ?module
-     *****************************************************/
-    import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
-    import SimplePeer from 'https://unpkg.com/simple-peer@9.11.1?module';
-    import signalhub from 'https://unpkg.com/signalhub@5.0.1?module';
+    import * as THREE from 'https://cdn.skypack.dev/three@0.128.0';
+    import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1';
+    import signalhub from 'https://cdn.skypack.dev/signalhub@5.0.1';
 
-    // ================ P2P + SIGNALHUB SETUP ================
+    /*****************************************************
+     * GLOBAL VARIABLES
+     *****************************************************/
     let connectionPeer = null;
     let myId = Math.random().toString(36).substr(2, 8);
     document.getElementById('my-id').textContent = myId;
@@ -109,14 +108,14 @@
     let subscription = null;
 
     function startSignalSubscription(room) {
-      if (subscription) subscription.close?.();
+      if (subscription && subscription.close) subscription.close();
       subscription = hub.subscribe(room);
       subscription.on('data', function(message) {
         if (message.sender === myId) return;
         if (connectionPeer && message.data) {
           connectionPeer.signal(message.data);
         }
-        // Game data is handled in handleData below
+        // Additional game data is handled in handleData below
       });
     }
     
@@ -153,7 +152,9 @@
       document.getElementById('connection-status').textContent = text;
     }
 
-    // ================ CREATE / JOIN BUTTONS ================
+    /*****************************************************
+     * BUTTONS (Create / Join)
+     *****************************************************/
     document.getElementById('create-room').addEventListener('click', function() {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
@@ -177,7 +178,7 @@
     });
 
     /*****************************************************
-     * GAME LOGIC: Movement, Tagging, Renders, etc.
+     * GAME CODE (Movement, Scoring, etc.)
      *****************************************************/
     let gameStarted = false;
     let gameEnded = false;
@@ -374,7 +375,7 @@
     remoteNameTag.position.set(0, 2.5, 0);
     remotePlayer.add(remoteNameTag);
 
-    // ================ STATIC OBJECTS ================
+    // ================ STATIC OBJECTS (Trees, Parkour) ================
     const trees = [];
     function createTree(x, z) {
       const tree = new THREE.Group();
@@ -394,8 +395,8 @@
       return tree;
     }
     for(let i=0;i<50;i++){
-      const x = random()*180 - 90;
-      const z = random()*180 - 90;
+      const x = (Math.random()*180 - 90);
+      const z = (Math.random()*180 - 90);
       if(Math.abs(x)<20 && Math.abs(z)<20){ i--; continue; }
       const tree = createTree(x,z);
       trees.push(tree);
@@ -520,7 +521,7 @@
       if(key in keys){
         if(key===' ' && !keys[' ']){
           if(isPlayerGrounded()){
-            localPlayer.velocity.y = jumpForce;
+            localPlayer.velocity.y =  jumpForce;
             localPlayer.canDoubleJump = true;
           } else if(localPlayer.canDoubleJump){
             localPlayer.velocity.y = jumpForce * 0.8;
