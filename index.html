@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – PeerJS Edition</title>
+  <title>Clash of Cubes – Signalhub Edition</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Connection Panel */
@@ -91,113 +91,97 @@
 
   <!-- ES Modules via Skypack -->
   <script type="module">
-    // Import updated libraries
     import * as THREE from 'https://cdn.skypack.dev/three@0.152.2';
-    import Peer from 'https://cdn.skypack.dev/peerjs@1.3.2';
+    import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1';
+    import signalhub from 'https://cdn.skypack.dev/signalhub@5.0.1';
 
     /*****************************************************
-     * CONNECTION SETUP USING PEERJS (Fixed for HTTPS)
+     * CONNECTION SETUP USING SIGNALHUB (Pub/Sub)
      *****************************************************/
-    let peer = null;
-    let conn = null;
-    let myId = "";
-    let roomId = "";
+    let connectionPeer = null;
+    let myId = Math.random().toString(36).substr(2, 8);
+    document.getElementById('my-id').textContent = myId;
+    let roomId = null;
+
+    // Use a public Signalhub server over HTTPS.
+    const hub = signalhub('clash-of-cubes', ['https://signalhub.mafintosh.com']);
+    let subscription = null;
+
+    // Subscribe to the channel (room) for signaling.
+    function startSignalSubscription(room) {
+      if (subscription && subscription.close) subscription.close();
+      subscription = hub.subscribe(room);
+      subscription.on('data', function(message) {
+        // Ignore messages from self.
+        if (message.sender === myId) return;
+        // Pass the signal data to SimplePeer.
+        if (connectionPeer && message.data) {
+          connectionPeer.signal(message.data);
+        }
+      });
+    }
     
-    // Update connection status UI.
+    // Create a WebRTC connection via SimplePeer.
+    function createConnection(isInitiator) {
+      connectionPeer = new SimplePeer({ initiator: isInitiator, trickle: false });
+      connectionPeer.on('signal', function(signalData) {
+        // Broadcast our signal over the pub/sub channel.
+        hub.broadcast(roomId, { sender: myId, data: signalData });
+      });
+      connectionPeer.on('connect', function() {
+        console.log("Data channel connected");
+        updateConnectionStatus("Connected!");
+        // Hide the connection panel once connected.
+        document.getElementById('connection-panel').style.display = 'none';
+      });
+      connectionPeer.on('data', function(data) {
+        try {
+          const message = JSON.parse(data);
+          handleData(message);
+        } catch (e) {
+          console.error("Error parsing data:", e);
+        }
+      });
+      connectionPeer.on('error', function(err) {
+        console.error("Connection error:", err);
+        updateConnectionStatus("Connection error.");
+      });
+      connectionPeer.on('close', function() {
+        console.log("Connection closed");
+        updateConnectionStatus("Connection closed.");
+      });
+    }
+    
     function updateConnectionStatus(text) {
       document.getElementById('connection-status').textContent = text;
     }
     
-    // Send a message over the established connection.
-    function sendMessage(message) {
-      if (conn && conn.open) {
-        conn.send(JSON.stringify(message));
-      }
-    }
-    
-    // Create Room – host
-    document.getElementById('create-room').addEventListener('click', () => {
+    // Button event listeners for creating or joining a room.
+    document.getElementById('create-room').addEventListener('click', function() {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
         roomId = Math.random().toString(36).substr(2, 8);
         document.getElementById('room-id').value = roomId;
       }
-      // Use the free cloud PeerServer at 0.peerjs.com
-      peer = new Peer(roomId, {
-        host: '0.peerjs.com',
-        secure: true,
-        port: 443,
-        // Optionally, you can add path: '/' if needed.
-      });
-      peer.on('open', (id) => {
-        myId = id;
-        document.getElementById('my-id').textContent = myId;
-        updateConnectionStatus(`Room created: ${roomId}. Waiting for opponent...`);
-      });
-      peer.on('error', err => {
-        console.error("Peer error:", err);
-        updateConnectionStatus("Error: " + err.type);
-      });
-      // Listen for incoming connection from a joiner.
-      peer.on('connection', (connection) => {
-        conn = connection;
-        conn.on('open', () => {
-          updateConnectionStatus("Connected!");
-          document.getElementById('connection-panel').style.display = 'none';
-          conn.on('data', (data) => {
-            try {
-              const message = (typeof data === 'string') ? JSON.parse(data) : data;
-              handleData(message);
-            } catch (e) {
-              console.error("Error parsing data:", e);
-            }
-          });
-        });
-        conn.on('error', (err) => console.error("Connection error:", err));
-      });
+      updateConnectionStatus("Room created: " + roomId + ". Waiting for opponent...");
+      startSignalSubscription(roomId);
+      createConnection(true); // Initiator (host)
     });
     
-    // Join Room – client
-    document.getElementById('join-room').addEventListener('click', () => {
+    document.getElementById('join-room').addEventListener('click', function() {
       roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
         alert("Please enter a Room ID to join");
         return;
       }
-      // Use the free cloud PeerServer at 0.peerjs.com
-      peer = new Peer(undefined, {
-        host: '0.peerjs.com',
-        secure: true,
-        port: 443,
-      });
-      peer.on('open', (id) => {
-        myId = id;
-        document.getElementById('my-id').textContent = myId;
-        updateConnectionStatus(`Joining room: ${roomId}. Waiting for connection...`);
-        conn = peer.connect(roomId);
-        conn.on('open', () => {
-          updateConnectionStatus("Connected!");
-          document.getElementById('connection-panel').style.display = 'none';
-          conn.on('data', (data) => {
-            try {
-              const message = (typeof data === 'string') ? JSON.parse(data) : data;
-              handleData(message);
-            } catch (e) {
-              console.error("Error parsing data:", e);
-            }
-          });
-        });
-        conn.on('error', (err) => console.error("Connection error:", err));
-      });
-      peer.on('error', err => {
-        console.error("Peer error:", err);
-        updateConnectionStatus("Error: " + err.type);
-      });
+      updateConnectionStatus("Joining room: " + roomId + ". Waiting for connection...");
+      startSignalSubscription(roomId);
+      createConnection(false); // Non-initiator (client)
     });
-    
+
     /*****************************************************
      * GAME CODE (Movement, Scoring, etc.)
-     * (Unchanged from your original game logic)
+     * (Mostly unchanged from your original game logic)
      *****************************************************/
     let gameStarted = false;
     let gameEnded = false;
@@ -517,8 +501,8 @@
       }
     }
     function sendMessage(message) {
-      if(conn && conn.open) {
-        conn.send(JSON.stringify(message));
+      if(connectionPeer && connectionPeer.connected) {
+        connectionPeer.send(JSON.stringify(message));
       }
     }
 
