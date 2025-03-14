@@ -96,7 +96,7 @@
     import Peer from 'https://cdn.skypack.dev/peerjs@1.3.2';
 
     /*****************************************************
-     * CONNECTION SETUP USING PEERJS
+     * CONNECTION SETUP USING PEERJS (Fixed for HTTPS)
      *****************************************************/
     let peer = null;
     let conn = null;
@@ -122,16 +122,21 @@
         roomId = Math.random().toString(36).substr(2, 8);
         document.getElementById('room-id').value = roomId;
       }
-      // Create a new Peer with the roomId as the host ID.
+      // Use the free cloud PeerServer at 0.peerjs.com
       peer = new Peer(roomId, {
+        host: '0.peerjs.com',
         secure: true,
-        host: 'peerjs.com',
-        port: 443
+        port: 443,
+        // Optionally, you can add path: '/' if needed.
       });
       peer.on('open', (id) => {
         myId = id;
         document.getElementById('my-id').textContent = myId;
         updateConnectionStatus(`Room created: ${roomId}. Waiting for opponent...`);
+      });
+      peer.on('error', err => {
+        console.error("Peer error:", err);
+        updateConnectionStatus("Error: " + err.type);
       });
       // Listen for incoming connection from a joiner.
       peer.on('connection', (connection) => {
@@ -139,7 +144,6 @@
         conn.on('open', () => {
           updateConnectionStatus("Connected!");
           document.getElementById('connection-panel').style.display = 'none';
-          // Set up data receiving.
           conn.on('data', (data) => {
             try {
               const message = (typeof data === 'string') ? JSON.parse(data) : data;
@@ -160,17 +164,16 @@
         alert("Please enter a Room ID to join");
         return;
       }
-      // Create a new Peer with a random ID.
+      // Use the free cloud PeerServer at 0.peerjs.com
       peer = new Peer(undefined, {
+        host: '0.peerjs.com',
         secure: true,
-        host: 'peerjs.com',
-        port: 443
+        port: 443,
       });
       peer.on('open', (id) => {
         myId = id;
         document.getElementById('my-id').textContent = myId;
         updateConnectionStatus(`Joining room: ${roomId}. Waiting for connection...`);
-        // Connect to the host (whose peer ID is the roomId)
         conn = peer.connect(roomId);
         conn.on('open', () => {
           updateConnectionStatus("Connected!");
@@ -185,6 +188,10 @@
           });
         });
         conn.on('error', (err) => console.error("Connection error:", err));
+      });
+      peer.on('error', err => {
+        console.error("Peer error:", err);
+        updateConnectionStatus("Error: " + err.type);
       });
     });
     
