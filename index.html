@@ -374,8 +374,8 @@
       port: 443,
       config: {
         iceServers: [
-          { url: 'stun:stun.l.google.com:19302' },
-          { url: 'stun:global.stun.twilio.com:3478?transport=udp' }
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:global.stun.twilio.com:3478' }
         ]
       }
     });
@@ -416,6 +416,12 @@
             break;
           case "tag":
             triggerTag();
+            break;
+          case "bonus":
+            // Synchronize bonus score update
+            blueScore++;
+            updateScoreboard();
+            showBonusMessage();
             break;
           case "restart":
             remoteReplay = true;
@@ -705,6 +711,8 @@
               blueScore++;
               updateScoreboard();
               showBonusMessage();
+              // Send bonus event to synchronize score.
+              sendMessage({ type: "bonus" });
               runnerBonusTimer = 0;
             }
           } else {
