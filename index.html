@@ -89,13 +89,11 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- ES Modules (Three, SimplePeer from Skypack; signalhub from jsDelivr) -->
+  <!-- ES Modules (Three & SimplePeer from Skypack; Signalhub from jsDelivr with ?module) -->
   <script type="module">
     import * as THREE from 'https://cdn.skypack.dev/three@0.152.2';
     import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1';
-
-    // Use jsDelivr for signalhub pinned at version 5.0.1
-    import signalhub from 'https://cdn.jsdelivr.net/npm/signalhub@5.0.1/index.js';
+    import signalhub from 'https://cdn.jsdelivr.net/npm/signalhub@5.0.1?module';
 
     /*****************************************************
      * CONNECTION SETUP USING SIGNALHUB (Pub/Sub)
@@ -642,29 +640,6 @@
     }
 
     // ================ COLLISION & MOVEMENT ================
-    function checkCollision(newPos){
-      const dx = newPos.x - remotePlayer.position.x;
-      const dz = newPos.z - remotePlayer.position.z;
-      if(Math.hypot(dx,dz) < (playerRadius*2)) return true;
-      for(let tree of trees){
-        const tx = tree.position.x;
-        const tz = tree.position.z;
-        if(Math.hypot(newPos.x-tx, newPos.z-tz) < (playerRadius+treeCollisionRadius))
-          return true;
-      }
-      const playerBox = new THREE.Box3().setFromCenterAndSize(
-        new THREE.Vector3(newPos.x, localPlayer.position.y, newPos.z),
-        new THREE.Vector3(1.5,2,1.5)
-      );
-      for(let platform of parkourPlatforms){
-        const platformBox = new THREE.Box3().setFromObject(platform);
-        const feetY = localPlayer.position.y - 1;
-        if(Math.abs(feetY - platformBox.max.y)<0.3) continue;
-        if(playerBox.intersectsBox(platformBox)) return true;
-      }
-      return false;
-    }
-
     const cameraDistance = 15;
     const cameraHeight = 10;
     let lastTime = performance.now();
