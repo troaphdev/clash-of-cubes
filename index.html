@@ -2,17 +2,67 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Clash of Cubes – Team Flip & Runner Bonus (SimplePeer Version)</title>
+  <title>Clash of Cubes – Multiplayer (Default Rooms)</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    #info {
+    /* Connection Panel */
+    #connection-panel {
       position: absolute;
       top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(255, 255, 255, 0.95);
+      padding: 15px;
+      border-radius: 8px;
+      font-family: Arial, sans-serif;
+      z-index: 20;
+      text-align: center;
+    }
+    #connection-panel input {
+      margin: 5px;
+      padding: 5px;
+      font-size: 16px;
+    }
+    #connection-panel button {
+      margin: 5px;
+      padding: 7px 12px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    #connection-status {
+      margin-top: 10px;
+      font-weight: bold;
+    }
+    /* Default Room List */
+    #default-rooms {
+      margin-top: 10px;
+      text-align: left;
+    }
+    #default-rooms h3 {
+      margin-bottom: 5px;
+    }
+    #default-rooms ul {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #default-rooms li {
+      padding: 4px;
+      border: 1px solid #ddd;
+      margin-bottom: 4px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    /* Info Panel (instructions) */
+    #info {
+      position: absolute;
+      bottom: 10px;
       left: 10px;
       z-index: 10;
       background: rgba(255,255,255,0.9);
       padding: 10px;
       font-family: Arial, sans-serif;
+      max-width: 300px;
     }
     #countdown, #endMessage, #bonusMessage {
       position: absolute;
@@ -24,84 +74,93 @@
     }
     #countdown { top: 50%; color: white; }
     #endMessage { top: 40%; color: white; }
-    #bonusMessage {
-      top: 70%;
-      color: yellow;
-      font-size: 48px;
-    }
+    #bonusMessage { top: 70%; color: yellow; font-size: 48px; }
     #scoreboard, #restartStatus {
       margin-top: 10px;
       font-size: 14px;
     }
-    /* New connection UI */
-    #connectionUI { margin-bottom: 10px; }
-    #connectionUI input { margin-right: 5px; }
   </style>
   <!-- Three.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-  <!-- SimplePeer and Signalhub -->
+  <!-- SimplePeer -->
   <script src="https://unpkg.com/simple-peer@latest/simplepeer.min.js"></script>
-  <script src="https://unpkg.com/signalhub@latest/signalhub.min.js"></script>
+  <!-- Signalhub -->
+  <script src="https://cdn.jsdelivr.net/npm/signalhub@5.0.1/dist/signalhub.min.js"></script>
 </head>
 <body>
-  <div id="info">
-    <div id="connectionUI">
-      <input type="text" id="room-id-input" placeholder="Enter Room ID">
-      <button id="create-btn">Create Game</button>
-      <button id="join-btn">Join Game</button>
-      <span id="room-display"></span>
+  <!-- Connection Panel -->
+  <div id="connection-panel">
+    <h2>Multiplayer Connection</h2>
+    <input type="text" id="room-id" placeholder="Room ID (or leave blank)">
+    <input type="text" id="username" placeholder="Your Username">
+    <br>
+    <button id="create-room">Create Room</button>
+    <button id="join-room">Join Room</button>
+    <p id="connection-status">Not connected</p>
+    <!-- Default Rooms List -->
+    <div id="default-rooms">
+      <h3>Default Rooms</h3>
+      <ul id="room-list"></ul>
     </div>
-    <div>Your ID: <span id="my-id">Loading...</span></div>
-    <input type="text" id="username-input" placeholder="Enter username">
-    <button id="set-username-btn">Set Username</button>
+  </div>
+  
+  <!-- Game Info Panel -->
+  <div id="info">
+    <p>Your ID: <span id="my-id">Loading...</span></p>
     <p id="roleInfo"></p>
     <div id="scoreboard"></div>
     <div id="restartStatus"></div>
-    <p>Use WASD to move (wait for connection). Press Space to jump.<br>
-       When TAGGED press R to request a restart.</p>
+    <p>
+      Use WASD to move (after connection). Press Space to jump.<br>
+      When TAGGED press R to request a restart.
+    </p>
   </div>
+  
   <div id="countdown">3</div>
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
   
   <script>
     // ==========================
-    // CONNECTION LOGIC USING SimplePeer + Signalhub
+    // GLOBAL VARIABLES & SIGNALING SETUP
     // ==========================
     let connectionPeer = null;
     let myId = Math.random().toString(36).substr(2, 8);
     document.getElementById('my-id').textContent = myId;
     let roomId = null;
-    // Use a free Signalhub server
-    const hub = signalhub('clash-of-cubes', ['https://signalhub-jccqtwhdwc.now.sh']);
-
-    // Subscribe to the chosen room
-    let subscription = null;
+    const hub = signalhub('clash-of-cubes', ['https://signalhub.mafintosh.com']);
+    let subscription = null; // for the main connection
     
+    // Heartbeat interval (for our own presence in a room)
+    let heartbeatInterval;
+    
+    // Main subscription for a room
     function startSignalSubscription(room) {
-      if(subscription) subscription.destroy();
+      if (subscription) subscription.close();
       subscription = hub.subscribe(room);
       subscription.on('data', function(message) {
-        // Ignore messages from ourselves.
-        if(message.sender === myId) return;
-        // Pass the signaling data to our peer.
-        if(connectionPeer && message.data) {
+        // Ignore messages from ourselves
+        if (message.sender === myId) return;
+        // Pass signaling data to our peer
+        if (connectionPeer && message.data) {
           connectionPeer.signal(message.data);
         }
+        // (Other message types are handled via handleData below)
       });
     }
     
     function createConnection(isInitiator) {
-      connectionPeer = new SimplePeer({
-        initiator: isInitiator,
-        trickle: false
-      });
+      connectionPeer = new SimplePeer({ initiator: isInitiator, trickle: false });
       connectionPeer.on('signal', function(signalData) {
-        // Broadcast our signaling data to others in the room.
         hub.broadcast(roomId, { sender: myId, data: signalData });
       });
       connectionPeer.on('connect', function() {
         console.log("Data channel connected");
+        updateConnectionStatus("Connected!");
+        // Hide connection panel once connected.
+        document.getElementById('connection-panel').style.display = 'none';
+        shutdownDefaultRooms();
+        startHeartbeat();
       });
       connectionPeer.on('data', function(data) {
         try {
@@ -113,46 +172,136 @@
       });
       connectionPeer.on('error', function(err) {
         console.error("Connection error:", err);
+        updateConnectionStatus("Connection error.");
       });
       connectionPeer.on('close', function() {
         console.log("Connection closed");
+        updateConnectionStatus("Connection closed.");
+        clearInterval(heartbeatInterval);
       });
     }
     
-    // UI for connection.
-    document.getElementById('create-btn').addEventListener('click', function() {
-      roomId = document.getElementById('room-id-input').value.trim();
-      if (!roomId) {
-        // If no room id provided, generate one.
-        roomId = Math.random().toString(36).substr(2, 8);
-        document.getElementById('room-id-input').value = roomId;
+    function updateConnectionStatus(text) {
+      document.getElementById('connection-status').textContent = text;
+    }
+    
+    function startHeartbeat() {
+      heartbeatInterval = setInterval(function() {
+        hub.broadcast(roomId, { type: "heartbeat", sender: myId });
+      }, 2000);
+    }
+    
+    // ==========================
+    // DEFAULT ROOM LIST FUNCTIONALITY
+    // ==========================
+    const defaultRooms = ["roomA", "roomB", "roomC", "roomD", "roomE"];
+    const defaultSubscriptions = {};
+    const roomHeartbeats = {};
+    
+    function setupDefaultRooms() {
+      const roomList = document.getElementById('room-list');
+      roomList.innerHTML = "";
+      defaultRooms.forEach(function(room) {
+        roomHeartbeats[room] = {}; // to store heartbeat timestamps per room
+        defaultSubscriptions[room] = hub.subscribe(room);
+        defaultSubscriptions[room].on('data', function(message) {
+          if (message.type === "heartbeat") {
+            roomHeartbeats[room][message.sender] = Date.now();
+          }
+        });
+        const li = document.createElement('li');
+        li.id = "default-room-" + room;
+        li.style.cursor = "pointer";
+        li.addEventListener('click', function() {
+          joinDefaultRoom(room);
+        });
+        roomList.appendChild(li);
+      });
+    }
+    
+    function updateDefaultRoomList() {
+      const now = Date.now();
+      defaultRooms.forEach(function(room) {
+        let count = 0;
+        for (let id in roomHeartbeats[room]) {
+          if (now - roomHeartbeats[room][id] < 5000) count++;
+        }
+        const li = document.getElementById("default-room-" + room);
+        if (li) li.textContent = room + " (" + count + "/2)";
+      });
+    }
+    
+    function shutdownDefaultRooms() {
+      for (let room in defaultSubscriptions) {
+        defaultSubscriptions[room].close();
       }
-      document.getElementById('room-display').textContent = "Room: " + roomId;
+      document.getElementById('default-rooms').style.display = 'none';
+    }
+    
+    function getRoomCount(room) {
+      const now = Date.now();
+      let count = 0;
+      for (let id in roomHeartbeats[room]) {
+        if (now - roomHeartbeats[room][id] < 5000) count++;
+      }
+      return count;
+    }
+    
+    function joinDefaultRoom(room) {
+      const count = getRoomCount(room);
+      if (count >= 2) {
+        alert("Room is full!");
+        return;
+      }
+      shutdownDefaultRooms();
+      roomId = room;
+      document.getElementById('room-id').value = room;
+      if (count === 0) {
+        updateConnectionStatus("Room created: " + room + ". Waiting for opponent...");
+        startSignalSubscription(room);
+        createConnection(true);
+      } else if (count === 1) {
+        updateConnectionStatus("Joining room: " + room + ". Waiting for connection...");
+        startSignalSubscription(room);
+        createConnection(false);
+      }
+    }
+    
+    // Start default room subscriptions and update list every second
+    setupDefaultRooms();
+    setInterval(updateDefaultRoomList, 1000);
+    
+    // ==========================
+    // BUTTON EVENT LISTENERS (Manual Room Entry)
+    // ==========================
+    document.getElementById('create-room').addEventListener('click', function() {
+      roomId = document.getElementById('room-id').value.trim();
+      if (!roomId) {
+        roomId = Math.random().toString(36).substr(2, 8);
+        document.getElementById('room-id').value = roomId;
+      }
+      updateConnectionStatus("Room created: " + roomId + ". Waiting for opponent...");
+      shutdownDefaultRooms();
       startSignalSubscription(roomId);
-      createConnection(true); // Initiator
+      createConnection(true);
     });
     
-    document.getElementById('join-btn').addEventListener('click', function() {
-      roomId = document.getElementById('room-id-input').value.trim();
+    document.getElementById('join-room').addEventListener('click', function() {
+      roomId = document.getElementById('room-id').value.trim();
       if (!roomId) {
         alert("Please enter a Room ID to join");
         return;
       }
-      document.getElementById('room-display').textContent = "Room: " + roomId;
+      updateConnectionStatus("Joining room: " + roomId + ". Waiting for connection...");
+      shutdownDefaultRooms();
       startSignalSubscription(roomId);
-      createConnection(false); // Not initiator
+      createConnection(false);
     });
     
-    // Function to send game messages.
-    function sendMessage(message) {
-      if(connectionPeer && connectionPeer.connected) {
-        connectionPeer.send(JSON.stringify(message));
-      }
-    }
-    
     // ==========================
-    // GAME CODE (Movement, Scoring, etc.)
+    // (GAME CODE) – MOVEMENT, RENDERING, COLLISION, ETC.
     // ==========================
+    // The game code remains largely unchanged.
     
     let gameStarted = false;
     let gameEnded = false;
@@ -167,10 +316,8 @@
     const maxSpeed = 20;
     let playerSpeed = 0;
     
-    // Runner bonus timer.
+    // Bonus and restart variables.
     let runnerBonusTimer = 0;
-
-    // Restart handshake flags.
     let localReplay = false;
     let remoteReplay = false;
     
@@ -183,13 +330,11 @@
     let redScore = 0;
     let blueScore = 0;
     
-    // Player references and name tags.
+    // Player objects and nametags.
     let localPlayer, remotePlayer;
     let localNameTag, remoteNameTag;
     
-    // ==========================
-    // UTILITIES & TERRAIN
-    // ==========================
+    // Utility: Seeded random.
     function createSeededRandom(seed) {
       let s = seed;
       return function() {
@@ -225,20 +370,20 @@
     directionalLight.shadow.camera.bottom = -100;
     scene.add(directionalLight);
     
-    // Terrain: Hilly ground.
+    // Terrain.
     function getGroundHeightAt(x, z) {
       const frequency = 0.1;
       const amplitude = 3;
       return Math.sin(x * frequency) * Math.cos(z * frequency) * amplitude;
     }
     const segments = 100;
-    const groundGeometry = new THREE.PlaneGeometry(200,200,segments,segments);
-    groundGeometry.rotateX(-Math.PI/2);
-    for(let i=0; i<groundGeometry.attributes.position.count; i++){
+    const groundGeometry = new THREE.PlaneGeometry(200, 200, segments, segments);
+    groundGeometry.rotateX(-Math.PI / 2);
+    for (let i = 0; i < groundGeometry.attributes.position.count; i++){
       let x = groundGeometry.attributes.position.getX(i);
       let z = groundGeometry.attributes.position.getZ(i);
-      let y = getGroundHeightAt(x,z);
-      groundGeometry.attributes.position.setY(i,y);
+      let y = getGroundHeightAt(x, z);
+      groundGeometry.attributes.position.setY(i, y);
     }
     groundGeometry.computeVertexNormals();
     const groundMaterial = new THREE.MeshLambertMaterial({color: 0x228B22});
@@ -247,9 +392,7 @@
     ground.castShadow = true;
     scene.add(ground);
     
-    // ==========================
-    // PLAYER CUBES & NAMETAGS
-    // ==========================
+    // PLAYER CUBES & NAMETAGS.
     function createCharacterCube(baseColor, options = {}) {
       const size = 2;
       const canvas = document.createElement("canvas");
@@ -257,13 +400,13 @@
       canvas.height = 128;
       const ctx = canvas.getContext("2d");
       ctx.fillStyle = '#' + baseColor.toString(16).padStart(6, '0');
-      ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = "white";
       ctx.beginPath();
-      ctx.arc(40,50,12,0,Math.PI*2);
+      ctx.arc(40, 50, 12, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(88,50,12,0,Math.PI*2);
+      ctx.arc(88, 50, 12, 0, Math.PI * 2);
       ctx.fill();
       const leftPupilOffsetX = options.leftEye?.pupilOffsetX || 0;
       const leftPupilOffsetY = options.leftEye?.pupilOffsetY || 0;
@@ -271,15 +414,15 @@
       const rightPupilOffsetY = options.rightEye?.pupilOffsetY || 0;
       ctx.fillStyle = "black";
       ctx.beginPath();
-      ctx.arc(40+leftPupilOffsetX,50+leftPupilOffsetY,5,0,Math.PI*2);
+      ctx.arc(40 + leftPupilOffsetX, 50 + leftPupilOffsetY, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.beginPath();
-      ctx.arc(88+rightPupilOffsetX,50+rightPupilOffsetY,5,0,Math.PI*2);
+      ctx.arc(88 + rightPupilOffsetX, 50 + rightPupilOffsetY, 5, 0, Math.PI * 2);
       ctx.fill();
       ctx.strokeStyle = "black";
       ctx.lineWidth = 4;
       ctx.beginPath();
-      ctx.arc(64,85,20,0,Math.PI);
+      ctx.arc(64, 85, 20, 0, Math.PI);
       ctx.stroke();
       const faceTexture = new THREE.CanvasTexture(canvas);
       faceTexture.needsUpdate = true;
@@ -291,30 +434,29 @@
         new THREE.MeshLambertMaterial({map: faceTexture}),
         new THREE.MeshLambertMaterial({color: baseColor})
       ];
-      const geometry = new THREE.BoxGeometry(size,size,size);
+      const geometry = new THREE.BoxGeometry(size, size, size);
       const cube = new THREE.Mesh(geometry, materials);
       cube.castShadow = true;
       cube.receiveShadow = true;
-      cube.velocity = new THREE.Vector3(0,0,0);
+      cube.velocity = new THREE.Vector3(0, 0, 0);
       cube.canDoubleJump = false;
       return cube;
     }
     
-    // Random spawn.
     function randomSpawn() {
       const centerX = Math.random() * 180 - 90;
       const centerZ = Math.random() * 180 - 90;
       const separation = 10;
       const angle = Math.random() * 2 * Math.PI;
-      const dx = Math.cos(angle) * separation/2;
-      const dz = Math.sin(angle) * separation/2;
+      const dx = Math.cos(angle) * separation / 2;
+      const dz = Math.sin(angle) * separation / 2;
       blueCube.position.set(centerX + dx, getGroundHeightAt(centerX + dx, centerZ + dz) + 1, centerZ + dz);
       redCube.position.set(centerX - dx, getGroundHeightAt(centerX - dx, centerZ - dz) + 1, centerZ - dz);
       const spawnAngle = Math.atan2((redCube.position.z - blueCube.position.z), (redCube.position.x - blueCube.position.x));
       blueCube.rotation.y = spawnAngle + Math.PI;
       redCube.rotation.y = spawnAngle;
-      blueCube.velocity.set(0,0,0);
-      redCube.velocity.set(0,0,0);
+      blueCube.velocity.set(0, 0, 0);
+      redCube.velocity.set(0, 0, 0);
     }
     
     const blueCube = createCharacterCube(0x0000ff, {
@@ -328,11 +470,9 @@
     randomSpawn();
     scene.add(blueCube);
     scene.add(redCube);
-    // Initially assign local and remote (will be updated upon connection).
     localPlayer = blueCube;
     remotePlayer = redCube;
     
-    // Create and attach nametags.
     function createNameTag(text) {
       const canvas = document.createElement("canvas");
       canvas.width = 256;
@@ -341,13 +481,14 @@
       ctx.font = "28px Arial";
       ctx.fillStyle = "white";
       ctx.textAlign = "center";
-      ctx.fillText(text, canvas.width/2, canvas.height/2 + 10);
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
       const texture = new THREE.CanvasTexture(canvas);
       const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
       const sprite = new THREE.Sprite(material);
-      sprite.scale.set(4,1,1);
+      sprite.scale.set(4, 1, 1);
       return sprite;
     }
+    
     function updateNameTag(sprite, text) {
       const canvas = document.createElement("canvas");
       canvas.width = 256;
@@ -356,11 +497,12 @@
       ctx.font = "28px Arial";
       ctx.fillStyle = "white";
       ctx.textAlign = "center";
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      ctx.fillText(text, canvas.width/2, canvas.height/2 + 10);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
       sprite.material.map.image = canvas;
       sprite.material.map.needsUpdate = true;
     }
+    
     localNameTag = createNameTag(localUsername);
     localNameTag.position.set(0, 2.5, 0);
     localPlayer.add(localNameTag);
@@ -368,97 +510,90 @@
     remoteNameTag.position.set(0, 2.5, 0);
     remotePlayer.add(remoteNameTag);
     
-    // ==========================
     // STATIC OBJECTS: TREES & PARKOUR
-    // ==========================
     const trees = [];
     function createTree(x, z) {
       const tree = new THREE.Group();
-      const trunkGeometry = new THREE.CylinderGeometry(0.3,0.3,3,6);
+      const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 6);
       const trunkMaterial = new THREE.MeshLambertMaterial({color: 0x8B4513});
       const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
       trunk.position.y = 1.5;
       trunk.castShadow = true;
       tree.add(trunk);
-      const leavesGeometry = new THREE.ConeGeometry(1.5,4,6);
+      const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 6);
       const leavesMaterial = new THREE.MeshLambertMaterial({color: 0x228B22});
       const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
       leaves.position.y = 4.5;
       leaves.castShadow = true;
       tree.add(leaves);
-      tree.position.set(x, getGroundHeightAt(x,z), z);
+      tree.position.set(x, getGroundHeightAt(x, z), z);
       return tree;
     }
-    for(let i=0;i<50;i++){
-      const x = random()*180 - 90;
-      const z = random()*180 - 90;
-      if(Math.abs(x)<20 && Math.abs(z)<20){ i--; continue; }
-      const tree = createTree(x,z);
+    
+    for (let i = 0; i < 50; i++) {
+      const x = random() * 180 - 90;
+      const z = random() * 180 - 90;
+      if (Math.abs(x) < 20 && Math.abs(z) < 20) { i--; continue; }
+      const tree = createTree(x, z);
       trees.push(tree);
       scene.add(tree);
     }
     
     const parkourPlatforms = [];
-    function createPlatform(x, y, z, width, height, depth, color=0x888888) {
-      const geometry = new THREE.BoxGeometry(width,height,depth);
+    function createPlatform(x, y, z, width, height, depth, color = 0x888888) {
+      const geometry = new THREE.BoxGeometry(width, height, depth);
       const material = new THREE.MeshLambertMaterial({color});
       const platform = new THREE.Mesh(geometry, material);
       platform.castShadow = true;
       platform.receiveShadow = true;
-      platform.position.set(x, y - height/2, z);
+      platform.position.set(x, y - height / 2, z);
       scene.add(platform);
       parkourPlatforms.push(platform);
     }
+    
     function createSpiralParkourCourse() {
       const numPlatforms = 30;
-      const baseX = 20, baseZ = 0, baseY = getGroundHeightAt(20,0)+3;
+      const baseX = 20, baseZ = 0, baseY = getGroundHeightAt(20, 0) + 3;
       const spiralRadius = 10;
-      const angleIncrement = Math.PI/6;
+      const angleIncrement = Math.PI / 6;
       const heightIncrement = 2;
-      for(let i=0;i<numPlatforms;i++){
-        const angle = i*angleIncrement;
-        const x = baseX + spiralRadius*Math.cos(angle);
-        const z = baseZ + spiralRadius*Math.sin(angle);
-        const y = baseY + i*heightIncrement;
-        createPlatform(x,y,z,2.5,0.8,2.5,0xcccccc);
+      for (let i = 0; i < numPlatforms; i++) {
+        const angle = i * angleIncrement;
+        const x = baseX + spiralRadius * Math.cos(angle);
+        const z = baseZ + spiralRadius * Math.sin(angle);
+        const y = baseY + i * heightIncrement;
+        createPlatform(x, y, z, 2.5, 0.8, 2.5, 0xcccccc);
       }
-      const finalAngle = numPlatforms*angleIncrement;
-      const finalX = baseX + spiralRadius*Math.cos(finalAngle);
-      const finalZ = baseZ + spiralRadius*Math.sin(finalAngle);
-      const finalY = baseY + numPlatforms*heightIncrement;
-      createPlatform(finalX, finalY, finalZ,4,1,4,0xffd700);
+      const finalAngle = numPlatforms * angleIncrement;
+      const finalX = baseX + spiralRadius * Math.cos(finalAngle);
+      const finalZ = baseZ + spiralRadius * Math.sin(finalAngle);
+      const finalY = baseY + numPlatforms * heightIncrement;
+      createPlatform(finalX, finalY, finalZ, 4, 1, 4, 0xffd700);
     }
     createSpiralParkourCourse();
     
-    // ==========================
     // SCOREBOARD UPDATE
-    // ==========================
     function updateScoreboard() {
-      document.getElementById('scoreboard').innerHTML = 
-        `<strong>Red (TAGGER):</strong> ${ (localTeam==="red" ? localUsername : remoteUsername) } - ${redScore} &nbsp;&nbsp; ` +
-        `<strong>Blue (RUNNER):</strong> ${ (localTeam==="blue" ? localUsername : remoteUsername) } - ${blueScore}`;
+      document.getElementById('scoreboard').innerHTML =
+        `<strong>Red (TAGGER):</strong> ${(localTeam==="red" ? localUsername : remoteUsername)} - ${redScore} &nbsp;&nbsp; ` +
+        `<strong>Blue (RUNNER):</strong> ${(localTeam==="blue" ? localUsername : remoteUsername)} - ${blueScore}`;
     }
     updateScoreboard();
     
-    // ==========================
     // BONUS MESSAGE
-    // ==========================
     function showBonusMessage(){
       const bonusDiv = document.getElementById('bonusMessage');
       bonusDiv.style.display = 'block';
       setTimeout(() => { bonusDiv.style.display = 'none'; }, 1000);
     }
     
-    // ==========================
-    // GAME DATA MESSAGING (Using our connectionPeer)
-    // ==========================
+    // GAME DATA MESSAGING
     function handleData(data) {
-      if(data.type) {
-        switch(data.type) {
+      if (data.type) {
+        switch (data.type) {
           case "teamAssignment":
-            if(!teamAssigned) {
-              // The other peer sent their team so assign the opposite.
-              if(data.team === "red") {
+            if (!teamAssigned) {
+              if (data.team === "red") {
                 localTeam = "blue"; remoteTeam = "red";
                 localPlayer = blueCube; remotePlayer = redCube;
               } else {
@@ -500,12 +635,16 @@
       }
     }
     
-    // ==========================
+    function sendMessage(message) {
+      if (connectionPeer && connectionPeer.connected) {
+        connectionPeer.send(JSON.stringify(message));
+      }
+    }
+    
     // USERNAME SETTING
-    // ==========================
-    document.getElementById('set-username-btn').addEventListener('click', ()=>{
-      const uname = document.getElementById('username-input').value.trim();
-      if(uname!==""){
+    document.getElementById('username').addEventListener('change', () => {
+      const uname = document.getElementById('username').value.trim();
+      if (uname !== "") {
         localUsername = uname;
         updateNameTag(localNameTag, localUsername);
         updateScoreboard();
@@ -513,65 +652,60 @@
       }
     });
     
-    // ==========================
     // INPUT HANDLING
-    // ==========================
-    const keys = {w:false,a:false,s:false,d:false,' ':false};
-    document.addEventListener('keydown', (e)=>{
+    const keys = {w:false, a:false, s:false, d:false, ' ':false};
+    document.addEventListener('keydown', (e) => {
       const key = e.key.toLowerCase();
-      if(key in keys){
-        if(key===' ' && !keys[' ']){
-          if(isPlayerGrounded()){
+      if (key in keys) {
+        if (key === ' ' && !keys[' ']) {
+          if (isPlayerGrounded()){
             localPlayer.velocity.y = jumpForce;
             localPlayer.canDoubleJump = true;
-          } else if(localPlayer.canDoubleJump){
+          } else if (localPlayer.canDoubleJump) {
             localPlayer.velocity.y = jumpForce * 0.8;
-            localPlayer.velocity.x += Math.sin(localPlayer.rotation.y)*5;
-            localPlayer.velocity.z += Math.cos(localPlayer.rotation.y)*5;
+            localPlayer.velocity.x += Math.sin(localPlayer.rotation.y) * 5;
+            localPlayer.velocity.z += Math.cos(localPlayer.rotation.y) * 5;
             localPlayer.canDoubleJump = false;
           }
         }
         keys[key] = true;
       }
-      // Restart key – both must press R.
-      if(gameEnded && key==='r'){
+      if (gameEnded && key === 'r') {
         localReplay = true;
         document.getElementById('restartStatus').textContent = "You pressed restart. Waiting for opponent...";
         sendMessage({ type: "restart" });
         checkReplay();
       }
     });
-    document.addEventListener('keyup', (e)=>{
+    document.addEventListener('keyup', (e) => {
       const key = e.key.toLowerCase();
-      if(key in keys) keys[key] = false;
+      if (key in keys) keys[key] = false;
     });
     
     function isPlayerGrounded(){
-      const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z)+1;
-      if(Math.abs(localPlayer.position.y - groundY) < 0.15 && localPlayer.velocity.y <= 0) return true;
-      for(let platform of parkourPlatforms){
+      const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z) + 1;
+      if (Math.abs(localPlayer.position.y - groundY) < 0.15 && localPlayer.velocity.y <= 0) return true;
+      for (let platform of parkourPlatforms) {
         const platformBox = new THREE.Box3().setFromObject(platform);
-        if(Math.abs((localPlayer.position.y - 1) - platformBox.max.y) < 0.15 && localPlayer.velocity.y <= 0)
+        if (Math.abs((localPlayer.position.y - 1) - platformBox.max.y) < 0.15 && localPlayer.velocity.y <= 0)
           return true;
       }
       return false;
     }
     
-    // ==========================
     // TAG LOGIC
-    // ==========================
     function checkForTag(){
-      if(localTeam==="red" && !gameEnded){
+      if (localTeam === "red" && !gameEnded){
         const localBox = new THREE.Box3().setFromObject(localPlayer);
         const remoteBox = new THREE.Box3().setFromObject(remotePlayer);
-        if(localBox.intersectsBox(remoteBox)){
+        if (localBox.intersectsBox(remoteBox)){
           sendMessage({ type: "tag" });
           triggerTag();
         }
       }
     }
     function triggerTag(){
-      if(gameEnded)return;
+      if (gameEnded) return;
       gameEnded = true;
       redScore++;
       updateScoreboard();
@@ -579,11 +713,9 @@
       document.getElementById('endMessage').style.display = 'block';
     }
     
-    // ==========================
     // RESTART LOGIC & TEAM FLIP
-    // ==========================
     function checkReplay(){
-      if(localReplay && remoteReplay){
+      if (localReplay && remoteReplay){
         sendMessage({ type: "resume" });
         restartGame();
       }
@@ -596,8 +728,7 @@
       document.getElementById('endMessage').style.display = 'none';
       document.getElementById('restartStatus').textContent = "";
       
-      // Flip teams.
-      if(localTeam === "red"){
+      if (localTeam === "red"){
         localTeam = "blue"; remoteTeam = "red";
         localPlayer = blueCube; remotePlayer = redCube;
       } else {
@@ -606,69 +737,63 @@
       }
       document.getElementById('roleInfo').textContent = "You are " + (localTeam==="red" ? "TAGGER (Red)" : "RUNNER (Blue)");
       
-      // Reset positions.
-      const centerX = Math.random()*180 - 90;
-      const centerZ = Math.random()*180 - 90;
+      const centerX = Math.random() * 180 - 90;
+      const centerZ = Math.random() * 180 - 90;
       const separation = 10;
-      const angle = Math.random()*2*Math.PI;
-      const dx = Math.cos(angle) * separation/2;
-      const dz = Math.sin(angle) * separation/2;
-      blueCube.position.set(centerX + dx, getGroundHeightAt(centerX + dx, centerZ + dz)+1, centerZ + dz);
-      redCube.position.set(centerX - dx, getGroundHeightAt(centerX - dx, centerZ - dz)+1, centerZ - dz);
+      const angle = Math.random() * 2 * Math.PI;
+      const dx = Math.cos(angle) * separation / 2;
+      const dz = Math.sin(angle) * separation / 2;
+      blueCube.position.set(centerX + dx, getGroundHeightAt(centerX + dx, centerZ + dz) + 1, centerZ + dz);
+      redCube.position.set(centerX - dx, getGroundHeightAt(centerX - dx, centerZ - dz) + 1, centerZ - dz);
       const spawnAngle = Math.atan2((redCube.position.z - blueCube.position.z), (redCube.position.x - blueCube.position.x));
       blueCube.rotation.y = spawnAngle + Math.PI;
       redCube.rotation.y = spawnAngle;
-      blueCube.velocity.set(0,0,0);
-      redCube.velocity.set(0,0,0);
+      blueCube.velocity.set(0, 0, 0);
+      redCube.velocity.set(0, 0, 0);
       
-      // Reset runner bonus timer.
       runnerBonusTimer = 0;
       startCountdown();
     }
     
-    // ==========================
     // COUNTDOWN
-    // ==========================
     const countdownDiv = document.getElementById('countdown');
     function startCountdown(){
-      if(gameStarted)return;
+      if (gameStarted) return;
       countdownDiv.style.display = 'block';
       countdownTime = 3;
       countdownDiv.textContent = countdownTime;
-      const countdownInterval = setInterval(()=>{
+      const countdownInterval = setInterval(() => {
         countdownTime--;
-        if(countdownTime<=0){
+        if (countdownTime <= 0){
           clearInterval(countdownInterval);
           countdownDiv.style.display = 'none';
           gameStarted = true;
         } else {
           countdownDiv.textContent = countdownTime;
         }
-      },1000);
+      }, 1000);
     }
     
-    // ==========================
-    // COLLISION DETECTION & MOVEMENT
-    // ==========================
+    // COLLISION & MOVEMENT
     function checkCollision(newPos){
       const dx = newPos.x - remotePlayer.position.x;
       const dz = newPos.z - remotePlayer.position.z;
-      if(Math.hypot(dx,dz) < (playerRadius*2)) return true;
-      for(let tree of trees){
+      if (Math.hypot(dx, dz) < (playerRadius * 2)) return true;
+      for (let tree of trees){
         const tx = tree.position.x;
         const tz = tree.position.z;
-        if(Math.hypot(newPos.x-tx, newPos.z-tz) < (playerRadius+treeCollisionRadius))
+        if (Math.hypot(newPos.x - tx, newPos.z - tz) < (playerRadius + treeCollisionRadius))
           return true;
       }
       const playerBox = new THREE.Box3().setFromCenterAndSize(
         new THREE.Vector3(newPos.x, localPlayer.position.y, newPos.z),
-        new THREE.Vector3(1.5,2,1.5)
+        new THREE.Vector3(1.5, 2, 1.5)
       );
-      for(let platform of parkourPlatforms){
+      for (let platform of parkourPlatforms){
         const platformBox = new THREE.Box3().setFromObject(platform);
         const feetY = localPlayer.position.y - 1;
-        if(Math.abs(feetY - platformBox.max.y)<0.3) continue;
-        if(playerBox.intersectsBox(platformBox)) return true;
+        if (Math.abs(feetY - platformBox.max.y) < 0.3) continue;
+        if (playerBox.intersectsBox(platformBox)) return true;
       }
       return false;
     }
@@ -679,42 +804,42 @@
     function animate(){
       requestAnimationFrame(animate);
       const currentTime = performance.now();
-      const delta = Math.min((currentTime-lastTime)/1000, 0.1);
+      const delta = Math.min((currentTime - lastTime) / 1000, 0.1);
       lastTime = currentTime;
-      if(gameStarted && !gameEnded){
-        if(keys.a) localPlayer.rotation.y += turnSpeed * delta;
-        if(keys.d) localPlayer.rotation.y -= turnSpeed * delta;
+      if (gameStarted && !gameEnded) {
+        if (keys.a) localPlayer.rotation.y += turnSpeed * delta;
+        if (keys.d) localPlayer.rotation.y -= turnSpeed * delta;
         let forwardAcceleration = 0;
-        if(keys.w) forwardAcceleration = accelerationVal;
-        else if(keys.s) forwardAcceleration = -accelerationVal;
+        if (keys.w) forwardAcceleration = accelerationVal;
+        else if (keys.s) forwardAcceleration = -accelerationVal;
         playerSpeed += forwardAcceleration * delta;
-        if(!keys.w && !keys.s){
-          if(playerSpeed>0) playerSpeed = Math.max(playerSpeed-frictionVal*delta,0);
-          else if(playerSpeed<0) playerSpeed = Math.min(playerSpeed+frictionVal*delta,0);
+        if (!keys.w && !keys.s) {
+          if (playerSpeed > 0) playerSpeed = Math.max(playerSpeed - frictionVal * delta, 0);
+          else if (playerSpeed < 0) playerSpeed = Math.min(playerSpeed + frictionVal * delta, 0);
         }
         playerSpeed = THREE.MathUtils.clamp(playerSpeed, -maxSpeed, maxSpeed);
         localPlayer.velocity.x = Math.sin(localPlayer.rotation.y) * playerSpeed;
         localPlayer.velocity.z = Math.cos(localPlayer.rotation.y) * playerSpeed;
         localPlayer.velocity.y += gravity * delta;
         localPlayer.position.y += localPlayer.velocity.y * delta;
-        const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z)+1;
-        if(localPlayer.position.y < groundY){
+        const groundY = getGroundHeightAt(localPlayer.position.x, localPlayer.position.z) + 1;
+        if (localPlayer.position.y < groundY){
           localPlayer.position.y = groundY;
           localPlayer.velocity.y = 0;
           localPlayer.canDoubleJump = true;
         }
         (function handlePlatformCollisions(player){
           const playerBox = new THREE.Box3().setFromCenterAndSize(
-            new THREE.Vector3(player.position.x, player.position.y-0.5, player.position.z),
-            new THREE.Vector3(1.5,2,1.5)
+            new THREE.Vector3(player.position.x, player.position.y - 0.5, player.position.z),
+            new THREE.Vector3(1.5, 2, 1.5)
           );
-          for(let platform of parkourPlatforms){
+          for (let platform of parkourPlatforms){
             const platformBox = new THREE.Box3().setFromObject(platform);
-            if(playerBox.intersectsBox(platformBox) && player.velocity.y<=0){
+            if (playerBox.intersectsBox(platformBox) && player.velocity.y <= 0){
               const platformTopY = platformBox.max.y;
-              const feetY = player.position.y-1;
-              if(feetY>=platformTopY-0.3 && feetY<=platformTopY+0.5){
-                player.position.y = platformTopY+1;
+              const feetY = player.position.y - 1;
+              if (feetY >= platformTopY - 0.3 && feetY <= platformTopY + 0.5){
+                player.position.y = platformTopY + 1;
                 player.velocity.y = 0;
                 localPlayer.canDoubleJump = true;
               }
@@ -726,7 +851,7 @@
         potentialPos.z += localPlayer.velocity.z * delta;
         potentialPos.x = THREE.MathUtils.clamp(potentialPos.x, -100, 100);
         potentialPos.z = THREE.MathUtils.clamp(potentialPos.z, -100, 100);
-        if(!checkCollision(potentialPos)){
+        if (!checkCollision(potentialPos)){
           localPlayer.position.x = potentialPos.x;
           localPlayer.position.z = potentialPos.z;
         } else {
@@ -734,11 +859,10 @@
           localPlayer.velocity.x = 0;
           localPlayer.velocity.z = 0;
         }
-        // Runner bonus mechanic: if you're the runner (blue) and moving fast.
-        if(localTeam === "blue") {
-          if(Math.abs(playerSpeed) >= 10) {
+        if (localTeam === "blue") {
+          if (Math.abs(playerSpeed) >= 10) {
             runnerBonusTimer += delta;
-            if(runnerBonusTimer >= 3) {
+            if (runnerBonusTimer >= 3) {
               blueScore++;
               updateScoreboard();
               showBonusMessage();
@@ -749,7 +873,6 @@
             runnerBonusTimer = 0;
           }
         }
-        // Send movement update.
         sendMessage({
           type: "movement",
           x: localPlayer.position.x,
@@ -759,20 +882,16 @@
         });
         checkForTag();
       }
-      // Camera follow.
       const forward = new THREE.Vector3(Math.sin(localPlayer.rotation.y), 0, Math.cos(localPlayer.rotation.y));
-      const desiredCamPos = localPlayer.position.clone().sub(forward.multiplyScalar(cameraDistance)).add(new THREE.Vector3(0,cameraHeight,0));
-      camera.position.lerp(desiredCamPos,0.1);
+      const desiredCamPos = localPlayer.position.clone().sub(forward.multiplyScalar(cameraDistance)).add(new THREE.Vector3(0, cameraHeight, 0));
+      camera.position.lerp(desiredCamPos, 0.1);
       camera.lookAt(localPlayer.position);
       renderer.render(scene, camera);
     }
     animate();
     
-    // ==========================
-    // WINDOW RESIZE
-    // ==========================
-    window.addEventListener('resize', ()=>{
-      camera.aspect = window.innerWidth/window.innerHeight;
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
