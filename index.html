@@ -89,11 +89,13 @@
   <div id="endMessage"></div>
   <div id="bonusMessage">BONUS!</div>
 
-  <!-- ES Modules via Skypack -->
+  <!-- ES Modules (Three, SimplePeer from Skypack; signalhub from jsDelivr) -->
   <script type="module">
     import * as THREE from 'https://cdn.skypack.dev/three@0.152.2';
     import SimplePeer from 'https://cdn.skypack.dev/simple-peer@9.11.1';
-    import signalhub from 'https://cdn.skypack.dev/signalhub@5.0.1';
+
+    // Use jsDelivr for signalhub pinned at version 5.0.1
+    import signalhub from 'https://cdn.jsdelivr.net/npm/signalhub@5.0.1/index.js';
 
     /*****************************************************
      * CONNECTION SETUP USING SIGNALHUB (Pub/Sub)
