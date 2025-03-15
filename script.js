@@ -52,21 +52,8 @@ function setupConnection() {
   document.getElementById('connection-status').textContent = "Connected!";
   document.getElementById('connection-panel').style.display = 'none';
 
-  if (isHost && !teamAssigned) {
-    // Host is always TAGGER (red); joiner will be RUNNER (blue)
-    localTeam = "red";
-    remoteTeam = "blue";
-    localPlayer = redCube;
-    remotePlayer = blueCube;
-    teamAssigned = true;
-    document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
-    sendMessage({ type: "teamAssignment", team: "red" });
-    // Start the countdown on both ends.
-    sendMessage({ type: "startCountdown" });
-    startCountdown();
-  }
+  // For joiner: request team assignment.
   if (!isHost) {
-    // Joiner: request team assignment and set a timer to retry if needed.
     sendMessage({ type: "requestTeam" });
     teamRequestTimeout = setTimeout(() => {
       if (!teamAssigned) {
@@ -163,7 +150,6 @@ let redScore = 0;
 let blueScore = 0;
 
 let localPlayer, remotePlayer;
-let localNameTag, remoteNameTag;
 
 /* 
  * Helper: compute the collision box for a player cube (size=2).
@@ -327,10 +313,10 @@ function updateNameTag(sprite, text) {
   sprite.material.map.image = canvas;
   sprite.material.map.needsUpdate = true;
 }
-localNameTag = createNameTag(localUsername);
+let localNameTag = createNameTag(localUsername);
 localNameTag.position.set(0, 2.5, 0);
 blueCube.add(localNameTag);
-remoteNameTag = createNameTag(remoteUsername);
+let remoteNameTag = createNameTag(remoteUsername);
 remoteNameTag.position.set(0, 2.5, 0);
 redCube.add(remoteNameTag);
 
@@ -423,9 +409,20 @@ function handleData(data) {
   if (data.type) {
     switch (data.type) {
       case "requestTeam":
-        // Host always responds with team assignment.
+        // Host now waits for joiner's request to assign teams and start the game.
         if (isHost) {
+          if (!teamAssigned) {
+            // Host is always TAGGER (red); joiner will be RUNNER (blue)
+            localTeam = "red";
+            remoteTeam = "blue";
+            localPlayer = redCube;
+            remotePlayer = blueCube;
+            teamAssigned = true;
+            document.getElementById('roleInfo').textContent = "You are TAGGER (Red)";
+          }
           sendMessage({ type: "teamAssignment", team: "red" });
+          sendMessage({ type: "startCountdown" });
+          if (!gameStarted) startCountdown();
         }
         break;
       case "teamAssignment":
