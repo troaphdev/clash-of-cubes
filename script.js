@@ -14,7 +14,12 @@ let teamAssigned = false;
 let teamRequestTimeout = null;
 
 function initializePeer(id = null) {
-  peer = new Peer(id, {});
+  // Updated Peer initialization with a working PeerJS server configuration.
+  peer = new Peer(id, {
+    host: 'peerjs-server.herokuapp.com',
+    secure: true,
+    port: 443
+  });
   peer.on('open', (id) => {
     console.log('Peer open with ID:', id);
   });
