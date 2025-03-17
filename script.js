@@ -19,7 +19,7 @@ let isConnecting = false; // Prevent overlapping reconnection attempts
 function initializePeer(id = null) {
   if (isConnecting) return;
   isConnecting = true;
-  // Use the Heroku PeerJS server without specifying a key.
+  // Use the Heroku PeerJS server without specifying a key so that the path doesn't duplicate.
   peer = new Peer(id, {
     host: 'peerjs-server.herokuapp.com',
     secure: true,
@@ -189,6 +189,7 @@ let remoteScore = 0;
 let localPlayer, remotePlayer;
 let localNameTag, remoteNameTag;
 
+// Helper: returns a player's AABB (cube of size 2)
 function getPlayerBox(player) {
   const size = 2;
   return new THREE.Box3(
@@ -198,6 +199,7 @@ function getPlayerBox(player) {
 }
 
 /* =============== SCENE SETUP =============== */
+// Create renderer with transparency so the background shows through.
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -243,6 +245,7 @@ ground.receiveShadow = true;
 ground.castShadow = true;
 scene.add(ground);
 
+/* --- Invisible Walls --- */
 const wallBoxes = [];
 function createWall(position, rotation, width, height, depth) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
