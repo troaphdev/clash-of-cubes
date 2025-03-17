@@ -13,9 +13,10 @@ let isHost = false;
 let teamAssigned = false;
 let teamRequestTimeout = null;
 let heartbeatInterval = null;
+let messageQueue = [];  // Queue messages until connection is available
 
 function initializePeer(id = null) {
-  // Updated Peer initialization using the Heroku server configuration
+  // Use the Heroku PeerJS server with explicit key, path, and debug options.
   peer = new Peer(id, {
     host: 'peerjs-server.herokuapp.com',
     secure: true,
@@ -28,25 +29,32 @@ function initializePeer(id = null) {
     console.log('Peer open with ID:', id);
   });
   peer.on('disconnected', () => {
-    console.warn("Peer disconnected. Attempting to reconnect...");
-    peer.reconnect();
-  });
-  peer.on('connection', (incomingConn) => {
-    console.log("Host received connection:", incomingConn);
-    if (!conn) {
-      conn = incomingConn;
-      setupConnection();
-    }
+    console.warn("Peer disconnected. Attempting to reconnect in 1 second...");
+    setTimeout(() => peer.reconnect(), 1000);
   });
   peer.on('error', (err) => {
     console.error(err);
     if (err.message && err.message.includes("Lost connection to server")) {
-         console.warn("Attempting to reconnect due to lost connection...");
-         peer.reconnect();
-         return;
+      console.warn("Lost connection to server. Attempting to reconnect in 1 second...");
+      setTimeout(() => peer.reconnect(), 1000);
+      return;
     }
     alert("PeerJS error: " + err);
   });
+  // (Optional) Listen for close event if needed.
+  peer.on('close', () => {
+    console.warn("Peer connection closed. Reinitializing connection...");
+    if (!isHost) {
+      setTimeout(connectToRoom, 1000);
+    }
+  });
+}
+
+function flushMessageQueue() {
+  while (messageQueue.length > 0 && conn && conn.open) {
+    const msg = messageQueue.shift();
+    conn.send(msg);
+  }
 }
 
 function setupConnection() {
@@ -73,6 +81,9 @@ function setupConnection() {
     }, 2000);
   }
   
+  // Flush any queued messages now that the connection is open.
+  flushMessageQueue();
+  
   // Send heartbeat every 15 seconds to help keep the connection alive.
   if (!heartbeatInterval) {
     heartbeatInterval = setInterval(() => {
@@ -88,7 +99,8 @@ function sendMessage(message) {
   if (conn && conn.open) {
     conn.send(message);
   } else {
-    console.warn("No connection available to send message:", message);
+    console.warn("No connection available, queueing message:", message);
+    messageQueue.push(message);
   }
 }
 
@@ -183,12 +195,10 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-// Clear with zero opacity so the canvas is transparent.
 renderer.setClearColor(0x000000, 0);
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-// Leave scene.background null so the body’s background is visible.
 const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
@@ -238,7 +248,6 @@ function createWall(position, rotation, width, height, depth) {
   const box = new THREE.Box3().setFromObject(wall);
   wallBoxes.push(box);
 }
-// Map boundaries: Assuming ground is 200x200 (from -100 to 100)
 createWall(new THREE.Vector3(-100.5, 25, 0), new THREE.Euler(0, 0, 0), 1, 50, 200);
 createWall(new THREE.Vector3(100.5, 25, 0), new THREE.Euler(0, 0, 0), 1, 50, 200);
 createWall(new THREE.Vector3(0, 25, -100.5), new THREE.Euler(0, 0, 0), 200, 50, 1);
@@ -374,7 +383,7 @@ function createTree(x, z) {
   tree.position.set(x, getGroundHeightAt(x, z), z);
   tree.updateMatrixWorld();
   const box = new THREE.Box3().setFromObject(tree);
-  box.expandByScalar(-0.5); // shrink collision box to reduce false collisions
+  box.expandByScalar(-0.5);
   trees.push(tree);
   treeBoxes.push(box);
   return tree;
@@ -692,7 +701,6 @@ function startCountdown() {
       clearInterval(countdownInterval);
       countdownDiv.style.display = 'none';
       gameStarted = true;
-      // Once the game starts, change the background to a blue sky.
       document.body.style.background = "#87ceeb";
     } else {
       countdownDiv.textContent = countdownTime;
@@ -741,7 +749,6 @@ function animate() {
     const potentialPos = localPlayer.position.clone();
     potentialPos.x += localPlayer.velocity.x * delta;
     potentialPos.z += localPlayer.velocity.z * delta;
-    // Clamp to map boundaries (map is 200x200, from -100 to 100)
     potentialPos.x = THREE.MathUtils.clamp(potentialPos.x, -100, 100);
     potentialPos.z = THREE.MathUtils.clamp(potentialPos.z, -100, 100);
     if (!checkCollision(potentialPos)) {
