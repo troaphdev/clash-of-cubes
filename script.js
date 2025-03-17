@@ -14,34 +14,44 @@ let teamAssigned = false;
 let teamRequestTimeout = null;
 let heartbeatInterval = null;
 let messageQueue = [];  // Queue messages until connection is available
+let isConnecting = false; // Prevent overlapping reconnection attempts
 
 function initializePeer(id = null) {
-  // Use the Heroku PeerJS server with explicit key, path, and debug options.
+  if (isConnecting) return;
+  isConnecting = true;
+  // Use the Heroku PeerJS server without specifying a key.
   peer = new Peer(id, {
     host: 'peerjs-server.herokuapp.com',
     secure: true,
     port: 443,
     path: '/peerjs',
-    key: 'peerjs',
     debug: 3
   });
   peer.on('open', (id) => {
     console.log('Peer open with ID:', id);
+    isConnecting = false;
   });
   peer.on('disconnected', () => {
     console.warn("Peer disconnected. Attempting to reconnect in 1 second...");
-    setTimeout(() => peer.reconnect(), 1000);
+    setTimeout(() => {
+      if (!isConnecting) {
+        peer.reconnect();
+      }
+    }, 1000);
   });
   peer.on('error', (err) => {
     console.error(err);
     if (err.message && err.message.includes("Lost connection to server")) {
       console.warn("Lost connection to server. Attempting to reconnect in 1 second...");
-      setTimeout(() => peer.reconnect(), 1000);
+      setTimeout(() => {
+        if (!isConnecting) {
+          peer.reconnect();
+        }
+      }, 1000);
       return;
     }
     alert("PeerJS error: " + err);
   });
-  // (Optional) Listen for close event if needed.
   peer.on('close', () => {
     console.warn("Peer connection closed. Reinitializing connection...");
     if (!isHost) {
@@ -81,10 +91,9 @@ function setupConnection() {
     }, 2000);
   }
   
-  // Flush any queued messages now that the connection is open.
   flushMessageQueue();
   
-  // Send heartbeat every 15 seconds to help keep the connection alive.
+  // Send heartbeat every 15 seconds to keep the connection alive.
   if (!heartbeatInterval) {
     heartbeatInterval = setInterval(() => {
       if (conn && conn.open) {
@@ -180,7 +189,6 @@ let remoteScore = 0;
 let localPlayer, remotePlayer;
 let localNameTag, remoteNameTag;
 
-// Helper: returns a player's AABB (cube of size 2)
 function getPlayerBox(player) {
   const size = 2;
   return new THREE.Box3(
@@ -190,7 +198,6 @@ function getPlayerBox(player) {
 }
 
 /* =============== SCENE SETUP =============== */
-// Create renderer with transparency so the background shows through.
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -236,7 +243,6 @@ ground.receiveShadow = true;
 ground.castShadow = true;
 scene.add(ground);
 
-/* --- Invisible Walls --- */
 const wallBoxes = [];
 function createWall(position, rotation, width, height, depth) {
   const geometry = new THREE.BoxGeometry(width, height, depth);
@@ -253,7 +259,6 @@ createWall(new THREE.Vector3(100.5, 25, 0), new THREE.Euler(0, 0, 0), 1, 50, 200
 createWall(new THREE.Vector3(0, 25, -100.5), new THREE.Euler(0, 0, 0), 200, 50, 1);
 createWall(new THREE.Vector3(0, 25, 100.5), new THREE.Euler(0, 0, 0), 200, 50, 1);
 
-/* =============== PLAYER CUBES =============== */
 function createCharacterCube(baseColor, options = {}) {
   const size = 2;
   const canvas = document.createElement("canvas");
@@ -332,7 +337,6 @@ randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
 
-/* =============== NAME TAGS =============== */
 function createNameTag(text) {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -363,7 +367,6 @@ function updateNameTag(sprite, text) {
   sprite.material.map.needsUpdate = true;
 }
 
-/* =============== STATIC OBJECTS (TREES & PARKOUR) =============== */
 const trees = [];
 const treeBoxes = [];
 function createTree(x, z) {
@@ -396,7 +399,6 @@ for (let i = 0; i < 50; i++) {
   scene.add(tree);
 }
 
-/* =============== PARKOUR PLATFORMS =============== */
 const parkourPlatforms = [];
 const platformBoxes = [];
 function createPlatform(x, y, z, width, height, depth, color = 0x888888) {
@@ -437,7 +439,6 @@ function createSpiralParkourCourse() {
 }
 createSpiralParkourCourse();
 
-/* =============== SCOREBOARD =============== */
 function updateScoreboard() {
   document.getElementById('scoreboard').innerHTML =
     `<strong>${localUsername}:</strong> ${localScore} &nbsp;&nbsp; ` +
@@ -445,19 +446,16 @@ function updateScoreboard() {
 }
 updateScoreboard();
 
-/* =============== BONUS MESSAGE =============== */
 function showBonusMessage() {
   const bonusDiv = document.getElementById('bonusMessage');
   bonusDiv.style.display = 'block';
   setTimeout(() => { bonusDiv.style.display = 'none'; }, 1000);
 }
 
-/* =============== GAME DATA MESSAGING =============== */
 function handleData(data) {
   if (data.type) {
     switch (data.type) {
       case "heartbeat":
-        // Ignore heartbeat messages.
         break;
       case "requestTeam":
         if (isHost && !teamAssigned) {
@@ -708,7 +706,6 @@ function startCountdown() {
   }, 1000);
 }
 
-/* =============== PHYSICS & ANIMATION LOOP =============== */
 const cameraDistance = 15;
 const cameraHeight = 10;
 let lastTime = performance.now();
