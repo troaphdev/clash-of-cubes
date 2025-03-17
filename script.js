@@ -12,16 +12,24 @@ let roomId = null;
 let isHost = false;
 let teamAssigned = false;
 let teamRequestTimeout = null;
+let heartbeatInterval = null;
 
 function initializePeer(id = null) {
-  // Updated Peer initialization with a working PeerJS server configuration.
+  // Updated Peer initialization using the Heroku server configuration
   peer = new Peer(id, {
     host: 'peerjs-server.herokuapp.com',
     secure: true,
-    port: 443
+    port: 443,
+    path: '/peerjs',
+    key: 'peerjs',
+    debug: 3
   });
   peer.on('open', (id) => {
     console.log('Peer open with ID:', id);
+  });
+  peer.on('disconnected', () => {
+    console.warn("Peer disconnected. Attempting to reconnect...");
+    peer.reconnect();
   });
   peer.on('connection', (incomingConn) => {
     console.log("Host received connection:", incomingConn);
@@ -32,6 +40,11 @@ function initializePeer(id = null) {
   });
   peer.on('error', (err) => {
     console.error(err);
+    if (err.message && err.message.includes("Lost connection to server")) {
+         console.warn("Attempting to reconnect due to lost connection...");
+         peer.reconnect();
+         return;
+    }
     alert("PeerJS error: " + err);
   });
 }
@@ -58,6 +71,15 @@ function setupConnection() {
         sendMessage({ type: "requestTeam" });
       }
     }, 2000);
+  }
+  
+  // Send heartbeat every 15 seconds to help keep the connection alive.
+  if (!heartbeatInterval) {
+    heartbeatInterval = setInterval(() => {
+      if (conn && conn.open) {
+        conn.send({ type: "heartbeat" });
+      }
+    }, 15000);
   }
 }
 
@@ -425,6 +447,9 @@ function showBonusMessage() {
 function handleData(data) {
   if (data.type) {
     switch (data.type) {
+      case "heartbeat":
+        // Ignore heartbeat messages.
+        break;
       case "requestTeam":
         if (isHost && !teamAssigned) {
           localTeam = "red";
