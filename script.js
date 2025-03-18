@@ -19,34 +19,42 @@ let isConnecting = false; // Prevent overlapping reconnection attempts
 function initializePeer(id = null) {
   if (isConnecting) return;
   isConnecting = true;
-  // Use the Heroku PeerJS server without specifying a key so that the path doesn't duplicate.
+  // Use the official PeerJS cloud server which sends the proper CORS headers.
   peer = new Peer(id, {
-    host: 'peerjs-server.herokuapp.com',
+    host: '0.peerjs.com',
     secure: true,
     port: 443,
-    path: '/peerjs',
     debug: 3
   });
   peer.on('open', (id) => {
     console.log('Peer open with ID:', id);
     isConnecting = false;
   });
+  // When acting as host, listen for incoming connections.
+  if (isHost) {
+    peer.on('connection', (incomingConn) => {
+      console.log("Host received connection from:", incomingConn.peer);
+      conn = incomingConn;
+      conn.on('open', setupConnection);
+      conn.on('error', (err) => {
+        console.error("Connection error (host):", err);
+        alert("Connection error: " + err);
+      });
+    });
+  }
   peer.on('disconnected', () => {
-    console.warn("Peer disconnected. Attempting to reconnect in 1 second...");
+    console.warn("Peer disconnected. Reinitializing new connection in 1 second...");
     setTimeout(() => {
-      if (!isConnecting) {
-        peer.reconnect();
-      }
+      // Reinitialize a new peer instance.
+      initializePeer(id);
     }, 1000);
   });
   peer.on('error', (err) => {
     console.error(err);
     if (err.message && err.message.includes("Lost connection to server")) {
-      console.warn("Lost connection to server. Attempting to reconnect in 1 second...");
+      console.warn("Lost connection to server. Reinitializing new connection in 1 second...");
       setTimeout(() => {
-        if (!isConnecting) {
-          peer.reconnect();
-        }
+        initializePeer(id);
       }, 1000);
       return;
     }
