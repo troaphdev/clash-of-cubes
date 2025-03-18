@@ -45,7 +45,6 @@ function initializePeer(id = null) {
   peer.on('disconnected', () => {
     console.warn("Peer disconnected. Reinitializing new connection in 1 second...");
     setTimeout(() => {
-      // Reinitialize a new peer instance.
       initializePeer(id);
     }, 1000);
   });
@@ -82,6 +81,9 @@ function setupConnection() {
   });
   document.getElementById('connection-status').textContent = "Connected!";
   document.getElementById('connection-panel').style.display = 'none';
+
+  // Remove the cover image immediately by overriding the background.
+  document.body.style.background = "#87ceeb";
 
   const unameInput = document.getElementById('username').value.trim();
   if (unameInput !== "") {
@@ -320,6 +322,15 @@ function createCharacterCube(baseColor, options = {}) {
   return cube;
 }
 
+// Create the player cubes and spawn them at random positions.
+const blueCube = createCharacterCube(0x0000ff, {
+  leftEye: { pupilOffsetX: 2, pupilOffsetY: 2 },
+  rightEye: { pupilOffsetX: -2, pupilOffsetY: 2 }
+});
+const redCube = createCharacterCube(0xff0000, {
+  leftEye: { pupilOffsetX: -2, pupilOffsetY: 2 },
+  rightEye: { pupilOffsetX: 2, pupilOffsetY: 2 }
+});
 function randomSpawn() {
   const centerX = Math.random() * 180 - 90;
   const centerZ = Math.random() * 180 - 90;
@@ -335,19 +346,53 @@ function randomSpawn() {
   blueCube.velocity.set(0, 0, 0);
   redCube.velocity.set(0, 0, 0);
 }
-
-const blueCube = createCharacterCube(0x0000ff, {
-  leftEye: { pupilOffsetX: 2, pupilOffsetY: 2 },
-  rightEye: { pupilOffsetX: -2, pupilOffsetY: 2 }
-});
-const redCube = createCharacterCube(0xff0000, {
-  leftEye: { pupilOffsetX: -2, pupilOffsetY: 2 },
-  rightEye: { pupilOffsetX: 2, pupilOffsetY: 2 }
-});
 randomSpawn();
 scene.add(blueCube);
 scene.add(redCube);
 
+/* =============== TREE SPAWN (Seeded for consistency) =============== */
+const trees = [];
+const treeBoxes = [];
+
+// Seeded random generator to ensure the same tree positions for every player.
+let treeSeed = 12345;
+function seededRandom() {
+  treeSeed = (treeSeed * 9301 + 49297) % 233280;
+  return treeSeed / 233280;
+}
+
+function createTree(x, z) {
+  const tree = new THREE.Group();
+  const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 6);
+  const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+  const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+  trunk.position.y = 1.5;
+  trunk.castShadow = true;
+  tree.add(trunk);
+  const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 6);
+  const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+  const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
+  leaves.position.y = 4.5;
+  leaves.castShadow = true;
+  tree.add(leaves);
+  tree.position.set(x, getGroundHeightAt(x, z), z);
+  tree.updateMatrixWorld();
+  const box = new THREE.Box3().setFromObject(tree);
+  box.expandByScalar(-0.5);
+  trees.push(tree);
+  treeBoxes.push(box);
+  return tree;
+}
+
+for (let i = 0; i < 50; i++) {
+  const x = seededRandom() * 180 - 90;
+  const z = seededRandom() * 180 - 90;
+  if (Math.abs(x) < 20 && Math.abs(z) < 20) { i--; continue; }
+  const tree = createTree(x, z);
+  scene.add(tree);
+}
+
+/* =============== NAME TAGS =============== */
 function createNameTag(text) {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
@@ -378,38 +423,7 @@ function updateNameTag(sprite, text) {
   sprite.material.map.needsUpdate = true;
 }
 
-const trees = [];
-const treeBoxes = [];
-function createTree(x, z) {
-  const tree = new THREE.Group();
-  const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.3, 3, 6);
-  const trunkMaterial = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-  const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-  trunk.position.y = 1.5;
-  trunk.castShadow = true;
-  tree.add(trunk);
-  const leavesGeometry = new THREE.ConeGeometry(1.5, 4, 6);
-  const leavesMaterial = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-  const leaves = new THREE.Mesh(leavesGeometry, leavesMaterial);
-  leaves.position.y = 4.5;
-  leaves.castShadow = true;
-  tree.add(leaves);
-  tree.position.set(x, getGroundHeightAt(x, z), z);
-  tree.updateMatrixWorld();
-  const box = new THREE.Box3().setFromObject(tree);
-  box.expandByScalar(-0.5);
-  trees.push(tree);
-  treeBoxes.push(box);
-  return tree;
-}
-for (let i = 0; i < 50; i++) {
-  const x = Math.random() * 180 - 90;
-  const z = Math.random() * 180 - 90;
-  if (Math.abs(x) < 20 && Math.abs(z) < 20) { i--; continue; }
-  const tree = createTree(x, z);
-  scene.add(tree);
-}
-
+/* =============== PARKOUR PLATFORMS =============== */
 const parkourPlatforms = [];
 const platformBoxes = [];
 function createPlatform(x, y, z, width, height, depth, color = 0x888888) {
