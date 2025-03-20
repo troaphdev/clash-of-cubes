@@ -19,12 +19,12 @@ let isConnecting = false; // Prevent overlapping reconnection attempts
 function initializePeer(id = null) {
   if (isConnecting) return;
   isConnecting = true;
-  // Use the official PeerJS cloud server with proper settings to allow external connections.
+  // Use a public PeerJS server hosted on Heroku.
   peer = new Peer(id, {
-    host: 'peerjs.com',
+    host: 'peerjs-server.herokuapp.com',
     secure: true,
     port: 443,
-    key: 'peerjs',
+    path: '/peerjs',
     debug: 3
   });
   peer.on('open', (id) => {
