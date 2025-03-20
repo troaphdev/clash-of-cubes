@@ -19,11 +19,12 @@ let isConnecting = false; // Prevent overlapping reconnection attempts
 function initializePeer(id = null) {
   if (isConnecting) return;
   isConnecting = true;
-  // Use the official PeerJS cloud server which sends the proper CORS headers.
+  // Use the official PeerJS cloud server with proper settings to allow external connections.
   peer = new Peer(id, {
-    host: '0.peerjs.com',
+    host: 'peerjs.com',
     secure: true,
     port: 443,
+    key: 'peerjs',
     debug: 3
   });
   peer.on('open', (id) => {
