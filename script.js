@@ -19,7 +19,7 @@ let isConnecting = false; // Prevent overlapping reconnection attempts
 function initializePeer(id = null) {
   if (isConnecting) return;
   isConnecting = true;
-  // Use a public PeerJS server hosted on Heroku.
+  // Use the public PeerJS server hosted on Heroku.
   peer = new Peer(id, {
     host: 'peerjs-server.herokuapp.com',
     secure: true,
